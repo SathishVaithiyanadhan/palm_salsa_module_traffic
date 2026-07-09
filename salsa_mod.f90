@@ -1,5 +1,5 @@
 !> @file salsa_mod.f90
-!--------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
 ! This file is part of PALM-4U.
 !
 ! PALM-4U is free software: you can redistribute it and/or modify it under the
@@ -16,7 +16,7 @@
 !
 ! Copyright 2018-2021 University of Helsinki
 ! Copyright 1997-2021 Leibniz Universitaet Hannover
-!--------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
 !
 ! Authors:
 ! --------
@@ -35,9 +35,13 @@
 !> Atmos. Environ. 35, 549-560) or Petroff&Zhang (2010, Geosci. Model Dev. 3,
 !> 753-769)
 !>
-!> @todo Apply information from emission_stack_height to lift emission sources
-!> @todo Allow insoluble emissions
-!------------------------------------------------------------------------------!
+!> @todo Apply information from emission_stack_height to lift emission sources.
+!> @done Allow insoluble emissions - working with both soluble and insoluble emissions (mass_frac_ and mass_frac_b) from the salsa emission file - done by Sathish.
+!> @done Add profile output for vertical fluxes - done by Sathish.
+!> @done Add trace metals in the listspec- done by Sathish.
+!> @done Add dual-population (traffic/non-traffic) aerosol processing - done by Sathish.
+!> @done Issue with the lateral boundary conditions for salsa from the dynamic driver is solved - done by Sathish
+!--------------------------------------------------------------------------------------------------!
  MODULE salsa_mod
 
 #if defined( __parallel )
@@ -45,55 +49,108 @@
 #endif
 
     USE basic_constants_and_equations_mod,                                                         &
-        ONLY:  c_p, g, p_0, pi, r_d
+        ONLY:  c_p,                                                                                &
+               g,                                                                                  &
+               p_0,                                                                                &
+               pi,                                                                                 &
+               r_d
 
     USE chem_gasphase_mod,                                                                         &
-        ONLY:  nspec, nvar, spc_names
+        ONLY:  nspec,                                                                              &
+               nvar,                                                                               &
+               spc_names
 
     USE chem_modules,                                                                              &
-        ONLY:  call_chem_at_all_substeps, chem_gasphase_on, chem_species
+        ONLY:  call_chem_at_all_substeps,                                                          &
+               chem_gasphase_on,                                                                   &
+               chem_species
 
     USE control_parameters,                                                                        &
-        ONLY:  allow_negative_scalar_values, air_chemistry, bc_dirichlet_l, bc_dirichlet_n,        &
-               bc_dirichlet_r, bc_dirichlet_s,      &
-               bc_lr, bc_lr_cyc, bc_ns, bc_ns_cyc, bc_radiation_l, bc_radiation_n, bc_radiation_r, &
-               bc_radiation_s, coupling_char, debug_output, dt_3d,                                 &
+        ONLY:  advanced_div_correction,                                                            &
+               allow_negative_scalar_values,                                                       &
+               air_chemistry,                                                                      &
+               bc_dirichlet_l,                                                                     &
+               bc_dirichlet_n,                                                                     &
+               bc_dirichlet_r,                                                                     &
+               bc_dirichlet_s,                                                                     &
+               bc_lr,                                                                              &
+               bc_lr_cyc,                                                                          &
+               bc_ns,                                                                              &
+               bc_ns_cyc,                                                                          &
+               bc_radiation_l,                                                                     &
+               bc_radiation_n,                                                                     &
+               bc_radiation_r,                                                                     &
+               bc_radiation_s,                                                                     &
+               coupling_char,                                                                      &
+               debug_output,                                                                       &
+               dt_3d,                                                                              &
                initializing_actions,                                                               &
                intermediate_timestep_count,                                                        &
-               intermediate_timestep_count_max, land_surface, max_pr_salsa, message_string,        &
-               monotonic_limiter_z, plant_canopy, pt_surface, restart_data_format_output, salsa,   &
+               intermediate_timestep_count_max,                                                    &
+               land_surface,                                                                       &
+               max_pr_cs,                                                                          &
+               max_pr_det,                                                                         &
+               max_pr_salsa,                                                                       &
+               message_string,                                                                     &
+               monotonic_limiter_z,                                                                &
+               plant_canopy,                                                                       &
+               pt_surface,                                                                         &
+               restart_data_format_output,                                                         &
+               salsa,                                                                              &
                scalar_advec,                                                                       &
-               surface_pressure, time_since_reference_point, timestep_scheme, tsc,                 &
-               urban_surface, ws_scheme_sca
+               surface_pressure,                                                                   &
+               time_since_reference_point,                                                         &
+               timestep_scheme,                                                                    &
+               tsc,                                                                                &
+               urban_surface,                                                                      &
+               ws_scheme_sca
 
     USE indices,                                                                                   &
-        ONLY:  nbgp, nx, nxl, nxlg, nxr, nxrg, ny, nyn, nyng, nys, nysg, nzb, nz, nzt, topo_flags, &
+        ONLY:  nbgp,                                                                               &
+               nx,                                                                                 &
+               nxl,                                                                                &
+               nxlg,                                                                               &
+               nxr,                                                                                &
+               nxrg,                                                                               &
+               ny,                                                                                 &
+               nyn,                                                                                &
+               nyng,                                                                               &
+               nys,                                                                                &
+               nysg,                                                                               &
+               nzb,                                                                                &
+               nz,                                                                                 &
+               nzt,                                                                                &
+               topo_flags,                                                                         &
                topo_top_ind
 
     USE kinds
 
     USE netcdf_data_input_mod,                                                                     &
-        ONLY:  chem_emis_att_type, chem_emis_val_type
+        ONLY:  chem_emis_att_type,                                                                 &
+               chem_emis_val_type
 
     USE pegrid
 
     USE restart_data_mpi_io_mod,                                                                   &
-        ONLY:  rd_mpi_io_check_array, rrd_mpi_io, rrd_mpi_io_global_array, wrd_mpi_io,             &
+        ONLY:  rd_mpi_io_check_array,                                                              &
+               rrd_mpi_io,                                                                         &
+               rrd_mpi_io_global_array,                                                            &
+               wrd_mpi_io,                                                                         &
                wrd_mpi_io_global_array
 
     USE statistics,                                                                                &
         ONLY:  sums_salsa_ws_l
 
     USE surface_mod,                                                                               &
-        ONLY :  bc_hv,                                                                             &
-                ind_pav_green,                                                                     &
-                ind_veg_wall,                                                                      &
-                ind_wat_win,                                                                       &
-                surf_def,                                                                          &
-                surf_lsm,                                                                          &
-                surf_type,                                                                         &
-                surf_top,                                                                          &
-                surf_usm
+        ONLY:  bc_hv,                                                                              &
+               ind_pav_green,                                                                      &
+               ind_veg_wall,                                                                       &
+               ind_wat_win,                                                                        &
+               surf_def,                                                                           &
+               surf_lsm,                                                                           &
+               surf_type,                                                                          &
+               surf_top,                                                                           &
+               surf_usm
 
     IMPLICIT NONE
 !
@@ -101,15 +158,18 @@
 !
 !-- Local constants:
     INTEGER(iwp), PARAMETER ::  luc_urban = 15     !< default landuse type for urban
-    INTEGER(iwp), PARAMETER ::  ngases_salsa  = 5  !< total number of gaseous tracers:
+    INTEGER(iwp), PARAMETER ::  ngases_salsa  = 10 !< total number of gaseous tracers:
                                                    !< 1 = H2SO4, 2 = HNO3, 3 = NH3, 4 = OCNV
                                                    !< (non-volatile OC), 5 = OCSV (semi-volatile)
+                                                   !< 6 = H2SO4_tra, 7 = HNO3_tra, 8 = NH3_tra,
+                                                   !< 9 = OCNV_tra, 10 = OCSV_tra (traffic chemistry)
     INTEGER(iwp), PARAMETER ::  nmod = 7     !< number of modes for initialising the aerosol size distribution
     INTEGER(iwp), PARAMETER ::  nreg = 2     !< Number of main size subranges
-    INTEGER(iwp), PARAMETER ::  maxspec = 7  !< Max. number of aerosol species
+! MODIFICATION: Increased maxspec from 7 to 12 to accommodate new trace metal species
+    INTEGER(iwp), PARAMETER ::  maxspec = 12 !< Max. number of aerosol species (increased from 7 to 12 for Pb, Hg, Ni, Cd, As)
+! MODIFICATION: Added dual-population support for traffic/non-traffic aerosol tracking
+    INTEGER(iwp) ::  npop = 2      !< number of aerosol populations: 1=non-traffic, 2=traffic
 
-
-    REAL(wp), PARAMETER ::  fill_value = -9999.0_wp    !< value for the _FillValue attribute
 !
 !-- Universal constants
     REAL(wp), PARAMETER ::  abo    = 1.380662E-23_wp   !< Boltzmann constant (J/K)
@@ -141,6 +201,12 @@
     REAL(wp), PARAMETER ::  amo3     = 47.998E-3_wp   !< O3
     REAL(wp), PARAMETER ::  amoc     = 150.0E-3_wp    !< organic carbon (OC)
     REAL(wp), PARAMETER ::  amss     = 58.44E-3_wp    !< sea salt (NaCl)
+! MODIFICATION: Added molar masses for new trace metal species
+    REAL(wp), PARAMETER ::  ampb     = 207.2E-3_wp    !< Lead (Pb)
+    REAL(wp), PARAMETER ::  amhg     = 200.59E-3_wp   !< Mercury (Hg)
+    REAL(wp), PARAMETER ::  amni     = 58.6934E-3_wp  !< Nickel (Ni)
+    REAL(wp), PARAMETER ::  amcd     = 112.414E-3_wp  !< Cadmium (Cd)
+    REAL(wp), PARAMETER ::  amas     = 74.9216E-3_wp  !< Arsenic (As)
 !
 !-- Densities in kg/m3
     REAL(wp), PARAMETER ::  arhobc     = 2000.0_wp  !< black carbon
@@ -151,6 +217,12 @@
     REAL(wp), PARAMETER ::  arhonh3    = 1530.0_wp  !< NH3
     REAL(wp), PARAMETER ::  arhooc     = 2000.0_wp  !< organic carbon
     REAL(wp), PARAMETER ::  arhoss     = 2165.0_wp  !< sea salt (NaCl)
+! MODIFICATION: Added densities for new trace metal species (typical values for oxides/metals)
+    REAL(wp), PARAMETER ::  arhopb     = 11340.0_wp !< Lead density (kg/m3)
+    REAL(wp), PARAMETER ::  arhohg     = 13534.0_wp !< Mercury density (kg/m3)
+    REAL(wp), PARAMETER ::  arhoni     = 8908.0_wp  !< Nickel density (kg/m3)
+    REAL(wp), PARAMETER ::  arhocd     = 8650.0_wp  !< Cadmium density (kg/m3)
+    REAL(wp), PARAMETER ::  arhoas     = 5727.0_wp  !< Arsenic density (kg/m3)
 !
 !-- Volume of molecule in m3/#
     REAL(wp), PARAMETER ::  amvh2o   = amh2o /avo / arhoh2o      !< H2O
@@ -159,6 +231,12 @@
     REAL(wp), PARAMETER ::  amvnh3   = amnh3 / avo / arhonh3     !< NH3
     REAL(wp), PARAMETER ::  amvoc    = amoc / avo / arhooc       !< OC
     REAL(wp), PARAMETER ::  amvss    = amss / avo / arhoss       !< sea salt
+! MODIFICATION: Added molecular volumes for new trace metal species
+    REAL(wp), PARAMETER ::  amvpb    = ampb / avo / arhopb       !< Pb
+    REAL(wp), PARAMETER ::  amvhg    = amhg / avo / arhohg       !< Hg
+    REAL(wp), PARAMETER ::  amvni    = amni / avo / arhoni       !< Ni
+    REAL(wp), PARAMETER ::  amvcd    = amcd / avo / arhocd       !< Cd
+    REAL(wp), PARAMETER ::  amvas    = amas / avo / arhoas       !< As
 !
 !-- Constants for the dry deposition model by Petroff and Zhang (2010):
 !-- obstacle characteristic dimension "L" (cm) (plane obstacle by default) and empirical constants
@@ -220,9 +298,12 @@
     CHARACTER(LEN=100) ::  input_file_dynamic = 'PIDS_DYNAMIC'    !< file name for dynamic input
     CHARACTER(LEN=100) ::  input_file_salsa   = 'PIDS_SALSA'      !< file name for emission data
     CHARACTER(LEN=20)  ::  salsa_emission_mode = 'no_emission'    !< 'no_emission', 'uniform',
+    LOGICAL  ::  is_traffic = .FALSE.                             !< track traffic emissions separately
                                                                   !< 'parameterized', 'read_from_file'
+! MODIFICATION: Extended listspec to 12 to include new trace metal species
     CHARACTER(LEN=3), DIMENSION(maxspec) ::  listspec = &  !< Active aerosols
-                                   (/'SO4','   ','   ','   ','   ','   ','   '/)
+                                   (/'SO4','OC ','BC ','DU ','SS ','NO ','NH ', &
+                                     'PB ','HG ','NI ','CD ','AS '/)
 
     INTEGER(iwp) ::  communicator_salsa     !< stores the number of the MPI communicator to be used
                                             !< for ghost layer data exchange
@@ -243,6 +324,12 @@
     INTEGER(iwp) ::  index_oc  = -1         !< index for organic carbon (OC)
     INTEGER(iwp) ::  index_so4 = -1         !< index for SO4 or H2SO4
     INTEGER(iwp) ::  index_ss  = -1         !< index for sea salt
+! MODIFICATION: Added index variables for new trace metal species
+    INTEGER(iwp) ::  index_pb  = -1         !< index for lead (Pb)
+    INTEGER(iwp) ::  index_hg  = -1         !< index for mercury (Hg)
+    INTEGER(iwp) ::  index_ni  = -1         !< index for nickel (Ni)
+    INTEGER(iwp) ::  index_cd  = -1         !< index for cadmium (Cd)
+    INTEGER(iwp) ::  index_as  = -1         !< index for arsenic (As)
     INTEGER(iwp) ::  init_aerosol_type = 0  !< Initial size distribution type
                                             !< 0 = uniform (read from PARIN)
                                             !< 1 = read vertical profiles from an input file
@@ -255,7 +342,7 @@
     INTEGER(iwp) ::  nbins_aerosol = 1      !< total number of size bins
     INTEGER(iwp) ::  ncc   = 1              !< number of chemical components used
     INTEGER(iwp) ::  ncomponents_mass = 1   !< total number of chemical compounds (ncc+1)
-                                            !< if particle water is advected)
+                                            !< if particle water is advected
     INTEGER(iwp) ::  nj3 = 1                !< J3 parametrization (nucleation)
                                             !< 1 = condensational sink (Kerminen&Kulmala, 2002)
                                             !< 2 = coagulational sink (Lehtinen et al. 2007)
@@ -284,9 +371,12 @@
 
     INTEGER(iwp), DIMENSION(nreg) ::  nbin = (/ 3, 7/)  !< Number of size bins per subrange: 1 & 2
 
-    INTEGER(iwp), DIMENSION(ngases_salsa) ::  gas_index_chem = (/ 1, 1, 1, 1, 1/)  !< gas indices in chemistry_model_mod
+    INTEGER(iwp), DIMENSION(ngases_salsa) ::  gas_index_chem = (/ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1/)  !< gas indices in chemistry_model_mod
                                                                                    !< 1 = H2SO4, 2 = HNO3,
                                                                                    !< 3 = NH3,   4 = OCNV, 5 = OCSV
+                                                                                   !< 6 = H2SO4_tra, 7 = HNO3_tra,
+                                                                                   !< 8 = NH3_tra, 9 = OCNV_tra, 10 = OCSV_tra
+    INTEGER(iwp), DIMENSION(ngases_salsa) ::  gas_index_chem_tra = (/ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1/)  !< traffic gas indices
     INTEGER(iwp), DIMENSION(ngases_salsa) ::  emission_index_chem  !< gas indices in the gas emission file
     INTEGER(iwp), DIMENSION(99) ::  salsa_pr_index  = 0            !< index for salsa profiles
 
@@ -349,6 +439,12 @@
     REAL(wp) ::  emiss_factor_side = 0.0_wp          !< relative emission factor for side streets
     REAL(wp) ::  h2so4_init = nclim                  !< Init value for sulphuric acid gas
     REAL(wp) ::  hno3_init  = nclim                  !< Init value for nitric acid gas
+! MODIFICATION: Added traffic gas init values
+    REAL(wp) ::  h2so4_tra_init = nclim              !< Init value for traffic sulphuric acid gas (#/m3)
+    REAL(wp) ::  hno3_tra_init  = nclim              !< Init value for traffic nitric acid gas (#/m3)
+    REAL(wp) ::  nh3_tra_init   = nclim              !< Init value for traffic ammonia gas (#/m3)
+    REAL(wp) ::  ocnv_tra_init  = nclim              !< Init value for traffic non-volatile organic gases (#/m3)
+    REAL(wp) ::  ocsv_tra_init  = nclim              !< Init value for traffic semi-volatile organic gases (#/m3)
     REAL(wp) ::  last_salsa_time = 0.0_wp            !< previous salsa call
     REAL(wp) ::  next_aero_emission_update = 0.0_wp  !< previous emission update
     REAL(wp) ::  next_gas_emission_update = 0.0_wp   !< previous emission update
@@ -357,7 +453,7 @@
     REAL(wp) ::  ocnv_init = nclim                   !< Init value for non-volatile organic gases
     REAL(wp) ::  ocsv_init = nclim                   !< Init value for semi-volatile organic gases
     REAL(wp) ::  rhlim = 1.20_wp                     !< RH limit in %/100. Prevents unrealistical RH
-    REAL(wp) ::  skip_time_do_salsa = 0.0_wp         !< Starting time of SALSA (s)
+    REAL(wp) ::  salsa_start_time = 0.0_wp           !< starting time of SALSA (s)
 !
 !-- Initial log-normal size distribution: mode diameter (dpg, metres),
 !-- standard deviation (sigmag) and concentration (n_lognorm, #/m3)
@@ -370,9 +466,14 @@
 !
 !-- Initial mass fractions / chemical composition of the size distribution
     REAL(wp), DIMENSION(maxspec) ::  mass_fracs_a = &  !< mass fractions between
-             (/1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0/)     !< aerosol species for A bins
+             (/1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0/)     !< aerosol species for A bins
     REAL(wp), DIMENSION(maxspec) ::  mass_fracs_b = &  !< mass fractions between
-             (/0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0/)     !< aerosol species for B bins
+             (/0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0/)     !< aerosol species for B bins
+! MODIFICATION: Added mass fractions for traffic population (pop=2)
+    REAL(wp), DIMENSION(maxspec) ::  mass_fracs_a_tra = &  !< mass fractions for traffic A bins
+             (/0.04, 0.48, 0.48, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0/)  !< traffic exhaust composition
+    REAL(wp), DIMENSION(maxspec) ::  mass_fracs_b_tra = &  !< mass fractions for traffic B bins
+             (/0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0/)     !< traffic insoluble = zero
     REAL(wp), DIMENSION(nreg+1) ::  reglim = &         !< Min&max diameters of size subranges
                                  (/ 3.0E-9_wp, 5.0E-8_wp, 1.0E-5_wp/)
 !
@@ -385,7 +486,8 @@
     REAL(wp), DIMENSION(nmod) ::  aerosol_flux_sigmag  = &
                                         (/1.8_wp, 2.16_wp, 2.21_wp, 2.0_wp, 2.0_wp, 2.0_wp, 2.0_wp/)
     REAL(wp), DIMENSION(maxspec) ::  aerosol_flux_mass_fracs_a = &
-                                                               (/1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0/)
+                                                               (/1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, &
+                                                                 0.0, 0.0, 0.0, 0.0, 0.0/)
     REAL(wp), DIMENSION(nmod) ::  surface_aerosol_flux = &
                                  (/1.0E+8_wp, 1.0E+9_wp, 1.0E+5_wp, 0.0_wp, 0.0_wp, 0.0_wp, 0.0_wp/)
 
@@ -427,7 +529,7 @@
        INTEGER(iwp) ::  lod = 0            !< level of detail
        INTEGER(iwp) ::  nbins = 10         !< number of aerosol size bins
        INTEGER(iwp) ::  ncat  = 0          !< number of emission categories
-       INTEGER(iwp) ::  ncc   = 7          !< number of aerosol chemical components
+       INTEGER(iwp) ::  ncc   = 12          !< number of aerosol chemical components
        INTEGER(iwp) ::  nhoursyear = 0     !< number of hours: HOURLY mode
        INTEGER(iwp) ::  nmonthdayhour = 0  !< number of month days and hours: MDH mode
        INTEGER(iwp) ::  num_vars           !< number of variables
@@ -475,9 +577,13 @@
 
        REAL(wp), DIMENSION(1:maxspec,1:4) ::  mass_frac_table = &  !<
           RESHAPE( (/ 0.04_wp, 0.48_wp, 0.48_wp, 0.0_wp,  0.0_wp, 0.0_wp, 0.0_wp, &
+                      0.0_wp, 0.0_wp, 0.0_wp, 0.0_wp, 0.0_wp, &
                       0.0_wp,  0.05_wp, 0.0_wp,  0.95_wp, 0.0_wp, 0.0_wp, 0.0_wp, &
+                      0.0_wp, 0.0_wp, 0.0_wp, 0.0_wp, 0.0_wp, &
                       0.0_wp,  0.5_wp,  0.5_wp,  0.0_wp,  0.0_wp, 0.0_wp, 0.0_wp, &
-                      0.0_wp,  0.5_wp,  0.5_wp,  0.0_wp,  0.0_wp, 0.0_wp, 0.0_wp  &
+                      0.0_wp, 0.0_wp, 0.0_wp, 0.0_wp, 0.0_wp, &
+                      0.0_wp,  0.5_wp,  0.5_wp,  0.0_wp,  0.0_wp, 0.0_wp, 0.0_wp, &
+                      0.0_wp, 0.0_wp, 0.0_wp, 0.0_wp, 0.0_wp  &
                    /), (/maxspec,4/) )
 
        REAL(wp), DIMENSION(1:3,1:4) ::  pm_frac_table = & !< rel. mass
@@ -511,7 +617,7 @@
        CHARACTER(LEN=17) ::  char_s = 'ls_forcing_south_' !< leading substring at south boundary
        CHARACTER(LEN=15) ::  char_t = 'ls_forcing_top_'   !< leading substring at top boundary
 
-       CHARACTER(LEN=5), DIMENSION(1:ngases_salsa) ::  gas_name = (/'H2SO4','HNO3 ','NH3  ','OCNV ','OCSV '/)
+       CHARACTER(LEN=9), DIMENSION(1:ngases_salsa) ::  gas_name = (/'H2SO4    ','HNO3     ','NH3      ','OCNV     ','OCSV     ','H2SO4_tra','HNO3_tra ','NH3_tra  ','OCNV_tra ','OCSV_tra '/)
 
        CHARACTER(LEN=25),  DIMENSION(:), ALLOCATABLE ::  cc_name    !< chemical component name
        CHARACTER(LEN=100), DIMENSION(:), ALLOCATABLE ::  var_names  !< list of variable names
@@ -591,6 +697,8 @@
                                                !< water. Since most of the stuff in SALSA is hard
                                                !< coded, these *have to be* in the order
                                                !< 1:SO4, 2:OC, 3:BC, 4:DU, 5:SS, 6:NO, 7:NH, 8:H2O
+                                               !< MODIFICATION: Extended to include new metals:
+                                               !< 9:PB, 10:HG, 11:NI, 12:CD, 13:AS
     END TYPE t_section
 
     TYPE(salsa_emission_attribute_type) ::  aero_emission_att  !< emission attributes
@@ -612,16 +720,18 @@
 !-- Prognostic variables:
 !
 !-- Number concentration (#/m3)
-    TYPE(salsa_variable), DIMENSION(:), ALLOCATABLE, TARGET ::  aerosol_number  !<
-    REAL(wp), DIMENSION(:,:,:,:), ALLOCATABLE, TARGET ::  nconc_1  !<
-    REAL(wp), DIMENSION(:,:,:,:), ALLOCATABLE, TARGET ::  nconc_2  !<
-    REAL(wp), DIMENSION(:,:,:,:), ALLOCATABLE, TARGET ::  nconc_3  !<
+    TYPE(salsa_variable), DIMENSION(:), ALLOCATABLE, TARGET ::  aerosol_number      !< non-traffic (pop=1)
+    TYPE(salsa_variable), DIMENSION(:), ALLOCATABLE, TARGET ::  aerosol_number_tra  !< traffic (pop=2)
+    REAL(wp), DIMENSION(:,:,:,:,:), ALLOCATABLE, TARGET ::  nconc_1  !< (z,y,x,npop,nbins)
+    REAL(wp), DIMENSION(:,:,:,:,:), ALLOCATABLE, TARGET ::  nconc_2  !<
+    REAL(wp), DIMENSION(:,:,:,:,:), ALLOCATABLE, TARGET ::  nconc_3  !<
 !
 !-- Mass concentration (kg/m3)
-    TYPE(salsa_variable), DIMENSION(:), ALLOCATABLE, TARGET ::  aerosol_mass  !<
-    REAL(wp), DIMENSION(:,:,:,:), ALLOCATABLE, TARGET ::  mconc_1  !<
-    REAL(wp), DIMENSION(:,:,:,:), ALLOCATABLE, TARGET ::  mconc_2  !<
-    REAL(wp), DIMENSION(:,:,:,:), ALLOCATABLE, TARGET ::  mconc_3  !<
+    TYPE(salsa_variable), DIMENSION(:), ALLOCATABLE, TARGET ::  aerosol_mass        !< non-traffic (pop=1)
+    TYPE(salsa_variable), DIMENSION(:), ALLOCATABLE, TARGET ::  aerosol_mass_tra    !< traffic (pop=2)
+    REAL(wp), DIMENSION(:,:,:,:,:), ALLOCATABLE, TARGET ::  mconc_1  !< (z,y,x,npop,ncomp*nbins)
+    REAL(wp), DIMENSION(:,:,:,:,:), ALLOCATABLE, TARGET ::  mconc_2  !<
+    REAL(wp), DIMENSION(:,:,:,:,:), ALLOCATABLE, TARGET ::  mconc_3  !<
 !
 !-- Gaseous concentrations (#/m3)
     TYPE(salsa_variable), DIMENSION(:), ALLOCATABLE, TARGET ::  salsa_gas  !<
@@ -630,12 +740,16 @@
     REAL(wp), DIMENSION(:,:,:,:), ALLOCATABLE, TARGET ::  gconc_3  !<
 !
 !-- Diagnostic tracers
-    REAL(wp), DIMENSION(:,:,:,:), ALLOCATABLE ::  sedim_vd  !< sedimentation velocity per bin (m/s)
+    REAL(wp), DIMENSION(:,:), ALLOCATABLE ::  sedim_vd  !< sedimentation velocity per bin (m/s)
+    REAL(wp), DIMENSION(:,:), ALLOCATABLE ::  tra_answs  !< traffic number flux per surface element
+    REAL(wp), DIMENSION(:,:), ALLOCATABLE ::  tra_amsws  !< traffic mass flux per surface element
+
     REAL(wp), DIMENSION(:,:,:,:), ALLOCATABLE ::  ra_dry    !< aerosol dry radius (m)
 
 !-- Particle component index tables
     TYPE(component_index) :: prtcl  !< Contains "getIndex" which gives the index for a given aerosol
                                     !< component name: 1:SO4, 2:OC, 3:BC, 4:DU, 5:SS, 6:NO, 7:NH, 8:H2O
+                                    !< MODIFICATION: Extended to include new metals
 !
 !-- Offline nesting:
     TYPE(salsa_nest_offl_type) ::  salsa_nest_offl  !< data structure for offline nesting
@@ -654,12 +768,25 @@
     REAL(wp), DIMENSION(:,:,:,:), ALLOCATABLE, TARGET ::  mbins_av  !< bin mas
     REAL(wp), DIMENSION(:,:,:,:), ALLOCATABLE, TARGET ::  nbins_av  !< bin number
 !
+!-- Traffic bin accumulators:
+    REAL(wp), DIMENSION(:,:,:,:), ALLOCATABLE, TARGET ::  mbins_av_tra  !< traffic bin mass
+    REAL(wp), DIMENSION(:,:,:,:), ALLOCATABLE, TARGET ::  nbins_av_tra  !< traffic bin number
+!
 !-- Gases:
     REAL(wp), DIMENSION(:,:,:,:), ALLOCATABLE, TARGET ::  salsa_gases_av  !< gases
+!
+!-- Traffic accumulators:
+    REAL(wp), DIMENSION(:,:,:), ALLOCATABLE, TARGET ::  ldsa_av_tra  !< traffic LDSA
+    REAL(wp), DIMENSION(:,:,:), ALLOCATABLE, TARGET ::  ntot_av_tra  !< traffic Ntot
+    REAL(wp), DIMENSION(:,:,:), ALLOCATABLE, TARGET ::  nufp_av_tra  !< traffic UFP
+    REAL(wp), DIMENSION(:,:,:), ALLOCATABLE, TARGET ::  pm01_av_tra  !< traffic PM0.1
+    REAL(wp), DIMENSION(:,:,:), ALLOCATABLE, TARGET ::  pm25_av_tra  !< traffic PM2.5
+    REAL(wp), DIMENSION(:,:,:), ALLOCATABLE, TARGET ::  pm10_av_tra  !< traffic PM10
 !
 !-- In the particle phase:
     REAL(wp), DIMENSION(:,:,:), ALLOCATABLE, TARGET ::  s_h2o_av  !< liquid water
     REAL(wp), DIMENSION(:,:,:,:), ALLOCATABLE, TARGET ::  s_mass_av  !< mass components
+    REAL(wp), DIMENSION(:,:,:,:), ALLOCATABLE, TARGET ::  s_mass_av_tra  !< traffic mass components
 
 !
 !-- PALM interfaces:
@@ -733,10 +860,6 @@
        MODULE PROCEDURE salsa_nesting_offl_init
     END INTERFACE salsa_nesting_offl_init
 
-    INTERFACE salsa_nesting_offl_input
-       MODULE PROCEDURE salsa_nesting_offl_input
-    END INTERFACE salsa_nesting_offl_input
-
     INTERFACE salsa_non_advective_processes
        MODULE PROCEDURE salsa_non_advective_processes
        MODULE PROCEDURE salsa_non_advective_processes_ij
@@ -788,140 +911,142 @@
     PRIVATE
 !
 !-- Public functions:
-    PUBLIC salsa_3d_data_averaging,       &
-           salsa_actions,                 &
-           salsa_boundary_conditions,     &
-           salsa_check_data_output,       &
-           salsa_check_data_output_pr,    &
-           salsa_check_parameters,        &
-           salsa_data_output_2d,          &
-           salsa_data_output_3d,          &
-           salsa_data_output_mask,        &
-           salsa_define_netcdf_grid,      &
-           salsa_diagnostics,             &
-           salsa_emission_update,         &
-           salsa_exchange_horiz_bounds,   &
-           salsa_header,                  &
-           salsa_init,                    &
-           salsa_init_arrays,             &
-           salsa_nesting_offl_bc,         &
-           salsa_nesting_offl_init,       &
-           salsa_nesting_offl_input,      &
-           salsa_non_advective_processes, &
-           salsa_parin,                   &
-           salsa_prognostic_equations,    &
-           salsa_rrd_global,              &
-           salsa_rrd_local,               &
-           salsa_statistics,              &
-           salsa_swap_timelevel,          &
-           salsa_wrd_global,              &
+    PUBLIC salsa_3d_data_averaging,                                                                &
+           salsa_actions,                                                                          &
+           salsa_boundary_conditions,                                                              &
+           salsa_check_data_output,                                                                &
+           salsa_check_data_output_pr,                                                             &
+           salsa_check_parameters,                                                                 &
+           salsa_data_output_2d,                                                                   &
+           salsa_data_output_3d,                                                                   &
+           salsa_data_output_mask,                                                                 &
+           salsa_define_netcdf_grid,                                                               &
+           salsa_diagnostics,                                                                      &
+           salsa_emission_update,                                                                  &
+           salsa_exchange_horiz_bounds,                                                            &
+           salsa_header,                                                                           &
+           salsa_init,                                                                             &
+           salsa_init_arrays,                                                                      &
+           salsa_nesting_offl_bc,                                                                  &
+           salsa_nesting_offl_init,                                                                &
+           salsa_non_advective_processes,                                                          &
+           salsa_parin,                                                                            &
+           salsa_prognostic_equations,                                                             &
+           salsa_rrd_global,                                                                       &
+           salsa_rrd_local,                                                                        &
+           salsa_statistics,                                                                       &
+           salsa_swap_timelevel,                                                                   &
+           salsa_wrd_global,                                                                       &
            salsa_wrd_local
 
 !
 !-- Public parameters, constants and initial values
-    PUBLIC bc_am_t_val,           &
-           bc_an_t_val,           &
-           bc_gt_t_val,           &
-           communicator_salsa,    &
-           ibc_aer_b,             &
-           init_aerosol_type,     &
-           init_gases_type,       &
-           nesting_salsa,         &
-           nesting_offline_salsa, &
-           salsa_gases_from_chem, &
-           skip_time_do_salsa
+    PUBLIC bc_am_t_val,                                                                            &
+           bc_an_t_val,                                                                            &
+           bc_gt_t_val,                                                                            &
+           communicator_salsa,                                                                     &
+           ibc_aer_b,                                                                              &
+           init_aerosol_type,                                                                      &
+           init_gases_type,                                                                        &
+           nesting_salsa,                                                                          &
+           nesting_offline_salsa,                                                                  &
+           salsa_gases_from_chem,                                                                  &
+           salsa_start_time
 !
 !-- Public variables
-    PUBLIC aerosol_mass,     &
-           aerosol_number,   &
-           gconc_2,          &
-           mconc_2,          &
-           nbins_aerosol,    &
-           ncomponents_mass, &
-           nconc_2,          &
-           ngases_salsa,     &
-           salsa_gas,        &
+    PUBLIC aerosol_mass,                                                                           &
+           aerosol_number,                                                                         &
+           gconc_2,                                                                                &
+           mconc_2,                                                                                &
+           nbins_aerosol,                                                                          &
+           ncomponents_mass,                                                                       &
+           nconc_2,                                                                                &
+           ngases_salsa,                                                                           &
+           salsa_gas,                                                                              &
            salsa_nest_offl
 
 
  CONTAINS
 
-!-------------------  -----------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Parin for &salsa_par for new modules
-!---------------------                    ---------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_parin
-
-    USE control_parameters,                                                                        &
-        ONLY:  data_output_pr
 
     IMPLICIT NONE
 
     CHARACTER(LEN=100) ::  line   !< dummy string that contains the current line of parameter file
 
-    INTEGER(iwp) ::  i                 !< loop index
     INTEGER(iwp) ::  io_status         !< status after reading the namelist file
-    INTEGER(iwp) ::  max_pr_salsa_tmp  !< dummy variable
 
     LOGICAL ::  switch_off_module = .FALSE.  !< local namelist parameter to switch off the module
                                              !< although the respective module namelist appears in
                                              !< the namelist file
 
-    NAMELIST /salsa_parameters/      aerosol_flux_dpg,                                             &
-                                     aerosol_flux_mass_fracs_a,                                    &
-                                     aerosol_flux_sigmag,                                          &
-                                     advect_particle_water,                                        &
-                                     bc_aer_b,                                                     &
-                                     bc_aer_l,                                                     &
-                                     bc_aer_n,                                                     &
-                                     bc_aer_r,                                                     &
-                                     bc_aer_s,                                                     &
-                                     bc_aer_t,                                                     &
-                                     depo_pcm_par,                                                 &
-                                     depo_pcm_type,                                                &
-                                     depo_surf_par,                                                &
-                                     dpg,                                                          &
-                                     dt_salsa,                                                     &
-                                     emiss_factor_main,                                            &
-                                     emiss_factor_side,                                            &
-                                     feedback_to_palm,                                             &
-                                     h2so4_init,                                                   &
-                                     hno3_init,                                                    &
-                                     listspec,                                                     &
-                                     main_street_id,                                               &
-                                     mass_fracs_a,                                                 &
-                                     mass_fracs_b,                                                 &
-                                     max_street_id,                                                &
-                                     n_lognorm,                                                    &
-                                     nbin,                                                         &
-                                     nesting_salsa,                                                &
-                                     nesting_offline_salsa,                                        &
-                                     nf2a,                                                         &
-                                     nh3_init,                                                     &
-                                     nj3,                                                          &
-                                     nlcnd,                                                        &
-                                     nlcndgas,                                                     &
-                                     nlcndh2oae,                                                   &
-                                     nlcoag,                                                       &
-                                     nldepo,                                                       &
-                                     nldepo_pcm,                                                   &
-                                     nldepo_surf,                                                  &
-                                     nldistupdate,                                                 &
-                                     nsnucl,                                                       &
-                                     ocnv_init,                                                    &
-                                     ocsv_init,                                                    &
-                                     reglim,                                                       &
-                                     salsa,                                                        &
-                                     salsa_emission_mode,                                          &
-                                     season_z01,                                                   &
-                                     sigmag,                                                       &
-                                     side_street_id,                                               &
-                                     skip_time_do_salsa,                                           &
-                                     surface_aerosol_flux,                                         &
-                                     switch_off_module,                                            &
-                                     van_der_waals_coagc
-
+    NAMELIST /salsa_parameters/  aerosol_flux_dpg,                                                 &
+                                 aerosol_flux_mass_fracs_a,                                        &
+                                 aerosol_flux_sigmag,                                              &
+                                 advect_particle_water,                                            &
+                                 bc_aer_b,                                                         &
+                                 bc_aer_l,                                                         &
+                                 bc_aer_n,                                                         &
+                                 bc_aer_r,                                                         &
+                                 bc_aer_s,                                                         &
+                                 bc_aer_t,                                                         &
+                                 depo_pcm_par,                                                     &
+                                 depo_pcm_type,                                                    &
+                                 depo_surf_par,                                                    &
+                                 dpg,                                                              &
+                                 dt_salsa,                                                         &
+                                 emiss_factor_main,                                                &
+                                 emiss_factor_side,                                                &
+                                 feedback_to_palm,                                                 &
+                                 h2so4_init,                                                       &
+                                 h2so4_tra_init,                                                   &
+                                 hno3_init,                                                        &
+                                 hno3_tra_init,                                                    &
+                                 listspec,                                                         &
+                                 main_street_id,                                                   &
+                                 mass_fracs_a,                                                     &
+                                 mass_fracs_a_tra,                                                 &
+                                 mass_fracs_b,                                                     &
+                                 mass_fracs_b_tra,                                                 &
+                                 max_street_id,                                                    &
+                                 n_lognorm,                                                        &
+                                 nbin,                                                             &
+                                 nesting_salsa,                                                    &
+                                 nesting_offline_salsa,                                            &
+                                 nf2a,                                                             &
+                                 nh3_init,                                                         &
+                                 nh3_tra_init,                                                     &
+                                 nj3,                                                              &
+                                 nlcnd,                                                            &
+                                 nlcndgas,                                                         &
+                                 nlcndh2oae,                                                       &
+                                 nlcoag,                                                           &
+                                 nldepo,                                                           &
+                                 nldepo_pcm,                                                       &
+                                 nldepo_surf,                                                      &
+                                 nldistupdate,                                                     &
+                                 nsnucl,                                                           &
+                                 ocnv_init,                                                        &
+                                 ocnv_tra_init,                                                    &
+                                 ocsv_init,                                                        &
+                                 ocsv_tra_init,                                                    &
+                                 reglim,                                                           &
+                                 rhlim,                                                           &
+                                 salsa,                                                            &
+                                 salsa_emission_mode,                                              &
+                                 salsa_start_time,                                                 &
+                                 season_z01,                                                       &
+                                 sigmag,                                                           &
+                                 side_street_id,                                                   &
+                                 surface_aerosol_flux,                                             &
+                                 switch_off_module,                                                &
+                                 van_der_waals_coagc,                                              &
+                                 is_traffic
 
 !
 !-- Move to the beginning of the namelist file and try to find and read the namelist.
@@ -946,45 +1071,51 @@
 
     ENDIF
 
-!
-!-- Update the number of output profiles
-    max_pr_salsa_tmp = 0
-    i = 1
-    DO WHILE ( data_output_pr(i) /= ' '  .AND.  i <= 100 )
-       IF ( TRIM( data_output_pr(i)(1:6) ) == 'salsa_' )  max_pr_salsa_tmp = max_pr_salsa_tmp + 1
-       i = i + 1
-    ENDDO
-    IF ( max_pr_salsa_tmp > 0 )  max_pr_salsa = max_pr_salsa_tmp
-
  END SUBROUTINE salsa_parin
 
 
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Check parameters routine for salsa.
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_check_parameters
 
     USE control_parameters,                                                                        &
-        ONLY:  child_domain, humidity, initializing_actions, nesting_offline
+        ONLY:  child_domain,                                                                       &
+               data_output_pr,                                                                     &
+               humidity,                                                                           &
+               initializing_actions,                                                               &
+               nesting_offline
 
     IMPLICIT NONE
 
+    INTEGER(iwp) ::  i  !< loop index
+
+    LOGICAL ::  bc_aer_t_set_internally = .FALSE.  !< flag to indicate if boundary condition has been set internally
+
+
 !
 !-- Check that humidity is switched on
-    IF ( salsa  .AND.  .NOT.  humidity )  THEN
-       WRITE( message_string, * ) 'salsa = ', salsa, ' is not allowed with humidity = ', humidity
-       CALL message( 'salsa_check_parameters', 'PA0594', 1, 2, 0, 6, 0 )
+    IF ( .NOT.  humidity )  THEN
+       WRITE( message_string, * ) 'salsa = .TRUE. is not allowed with humidity = ', humidity
+       CALL message( 'salsa_check_parameters', 'SAL0001', 1, 2, 0, 6, 0 )
     ENDIF
 !
 !-- For nested runs, explicitly set nesting boundary conditions.
     IF ( child_domain )  THEN
        IF ( nesting_salsa )  THEN
           bc_aer_t = 'nested'
+          bc_aer_t_set_internally = .TRUE.
        ELSE
           bc_aer_t = 'neumann'
        ENDIF
+    ENDIF
+!
+!-- Check if nested boundary conditions have been set for non-allowed cases.
+    IF ( bc_aer_t == 'nested'  .AND.  .NOT. bc_aer_t_set_internally )  THEN
+       message_string = 'unknown boundary condition: bc_aer_t = "' // TRIM( bc_aer_t ) // '"'
+       CALL message( 'salsa_check_parameters', 'SAL0003', 1, 2, 0, 6, 0 )
     ENDIF
 !
 !-- Set boundary conditions also in case the model is offline-nested in larger-scale models.
@@ -1002,8 +1133,8 @@
     ELSEIF ( bc_aer_b == 'neumann' )  THEN
        ibc_aer_b = 1
     ELSE
-       message_string = 'unknown boundary condition: bc_aer_b = "' // TRIM( bc_aer_t ) // '"'
-       CALL message( 'salsa_check_parameters', 'PA0595', 1, 2, 0, 6, 0 )
+       message_string = 'unknown boundary condition: bc_aer_b = "' // TRIM( bc_aer_b ) // '"'
+       CALL message( 'salsa_check_parameters', 'SAL0002', 1, 2, 0, 6, 0 )
     ENDIF
 !
 !-- Set top boundary conditions flag
@@ -1017,19 +1148,19 @@
        ibc_aer_t = 3
     ELSE
        message_string = 'unknown boundary condition: bc_aer_t = "' // TRIM( bc_aer_t ) // '"'
-       CALL message( 'salsa_check_parameters', 'PA0596', 1, 2, 0, 6, 0 )
+       CALL message( 'salsa_check_parameters', 'SAL0003', 1, 2, 0, 6, 0 )
     ENDIF
 !
 !-- Check J3 parametrisation
     IF ( nj3 < 1  .OR.  nj3 > 3 )  THEN
        message_string = 'unknown nj3 (must be 1-3)'
-       CALL message( 'salsa_check_parameters', 'PA0597', 1, 2, 0, 6, 0 )
+       CALL message( 'salsa_check_parameters', 'SAL0004', 1, 2, 0, 6, 0 )
     ENDIF
 !
 !-- Check bottom boundary condition in case of surface emissions
     IF ( salsa_emission_mode /= 'no_emission'  .AND.  ibc_aer_b  == 0 ) THEN
        message_string = 'salsa_emission_mode /= "no_emission" requires bc_aer_b = "Neumann"'
-       CALL message( 'salsa_check_parameters','PA0598', 1, 2, 0, 6, 0 )
+       CALL message( 'salsa_check_parameters','SAL0005', 1, 2, 0, 6, 0 )
     ENDIF
 !
 !-- Check left and right boundary conditions. First set default value if not set by user.
@@ -1053,11 +1184,11 @@
     ENDIF
     IF ( bc_aer_l /= 'dirichlet'  .AND.  bc_aer_l /= 'neumann'  .AND.  bc_aer_l /= 'cyclic' )  THEN
        message_string = 'unknown boundary condition: bc_aer_l = "' // TRIM( bc_aer_l ) // '"'
-       CALL message( 'salsa_check_parameters','PA0626', 1, 2, 0, 6, 0 )
+       CALL message( 'salsa_check_parameters','SAL0006', 1, 2, 0, 6, 0 )
     ENDIF
     IF ( bc_aer_r /= 'dirichlet'  .AND.  bc_aer_r /= 'neumann'  .AND.  bc_aer_r /= 'cyclic' )  THEN
        message_string = 'unknown boundary condition: bc_aer_r = "' // TRIM( bc_aer_r ) // '"'
-       CALL message( 'salsa_check_parameters','PA0627', 1, 2, 0, 6, 0 )
+       CALL message( 'salsa_check_parameters','SAL0007', 1, 2, 0, 6, 0 )
     ENDIF
 !
 !-- Check north and south boundary conditions. First set default value if not set by user.
@@ -1081,23 +1212,23 @@
     ENDIF
     IF ( bc_aer_n /= 'dirichlet'  .AND.  bc_aer_n /= 'neumann'  .AND.  bc_aer_n /= 'cyclic' )  THEN
        message_string = 'unknown boundary condition: bc_aer_n = "' // TRIM( bc_aer_n ) // '"'
-       CALL message( 'salsa_check_parameters','PA0709', 1, 2, 0, 6, 0 )
+       CALL message( 'salsa_check_parameters','SAL0008', 1, 2, 0, 6, 0 )
     ENDIF
     IF ( bc_aer_s /= 'dirichlet'  .AND.  bc_aer_s /= 'neumann'  .AND.  bc_aer_s /= 'cyclic' )  THEN
        message_string = 'unknown boundary condition: bc_aer_s = "' // TRIM( bc_aer_s ) // '"'
-       CALL message( 'salsa_check_parameters','PA0711', 1, 2, 0, 6, 0 )
+       CALL message( 'salsa_check_parameters','SAL0009', 1, 2, 0, 6, 0 )
     ENDIF
 !
 !-- Cyclic conditions must be set identically at opposing boundaries
     IF ( ( bc_aer_l == 'cyclic' .AND. bc_aer_r /= 'cyclic' )  .OR.                                 &
          ( bc_aer_r == 'cyclic' .AND. bc_aer_l /= 'cyclic' ) )  THEN
        message_string = 'boundary conditions bc_aer_l and bc_aer_r must both be cyclic or non-cyclic'
-       CALL message( 'salsa_check_parameters','PA0712', 1, 2, 0, 6, 0 )
+       CALL message( 'salsa_check_parameters','SAL0010', 1, 2, 0, 6, 0 )
     ENDIF
     IF ( ( bc_aer_n == 'cyclic' .AND. bc_aer_s /= 'cyclic' )  .OR.                                 &
          ( bc_aer_s == 'cyclic' .AND. bc_aer_n /= 'cyclic' ) )  THEN
        message_string = 'boundary conditions bc_aer_n and bc_aer_s must both be cyclic or non-cyclic'
-       CALL message( 'salsa_check_parameters','PA0713', 1, 2, 0, 6, 0 )
+       CALL message( 'salsa_check_parameters','SAL0011', 1, 2, 0, 6, 0 )
     ENDIF
 !
 !-- Set the switches that control application of horizontal boundary conditions at the boundaries
@@ -1131,8 +1262,8 @@
     IF ( salsa_emission_mode /= 'no_emission' )  include_emission = .TRUE.
 !
 !-- Set the initialisation type: background concentration are read from PIDS_DYNAMIC if
-!-- initializing_actions = 'inifor set_constant_profiles'
-    IF ( INDEX( initializing_actions, 'inifor' ) /= 0 )  THEN
+!-- initializing_actions = 'read_from_file set_constant_profiles'
+    IF ( INDEX( initializing_actions, 'read_from_file' ) /= 0 )  THEN
        init_aerosol_type = 1
        init_gases_type = 1
     ENDIF
@@ -1142,16 +1273,25 @@
        read_restart_data_salsa = .FALSE.
     ENDIF
 
+!
+!-- Update the number of output profiles
+    i = 1
+    DO WHILE ( data_output_pr(i) /= ' '  .AND.  i <= 100 )
+       IF ( TRIM( data_output_pr(i)(1:6) ) == 'salsa_' )  max_pr_salsa = max_pr_salsa + 1
+       i = i + 1
+    ENDDO
+
  END SUBROUTINE salsa_check_parameters
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 !
 ! Description:
 ! ------------
 !> Subroutine defining appropriate grid for netcdf variables.
 !> It is called out from subroutine netcdf.
 !> Same grid as for other scalars (see netcdf_interface_mod.f90)
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_define_netcdf_grid( var, found, grid_x, grid_y, grid_z )
 
     IMPLICIT NONE
@@ -1162,6 +1302,7 @@
     CHARACTER(LEN=*), INTENT(IN)  ::  var      !<
 
     LOGICAL, INTENT(OUT) ::  found   !<
+
 
     found  = .TRUE.
 !
@@ -1180,23 +1321,28 @@
 
  END SUBROUTINE salsa_define_netcdf_grid
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Header output for new module
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_header( io )
 
     USE indices,                                                                                   &
-        ONLY:  nx, ny, nz
+        ONLY:  nx,                                                                                 &
+               ny,                                                                                 &
+               nz
 
     IMPLICIT NONE
 
     INTEGER(iwp), INTENT(IN) ::  io   !< Unit of the output file
+
+
 !
 !-- Write SALSA header
     WRITE( io, 1 )
-    WRITE( io, 2 ) skip_time_do_salsa
+    WRITE( io, 2 ) salsa_start_time
     WRITE( io, 3 ) dt_salsa
     WRITE( io, 4 )  nz, ny, nx, nbins_aerosol
     IF ( advect_particle_water )  THEN
@@ -1217,8 +1363,10 @@
     WRITE( io, 25 )  aero(:)%dmid
     IF ( init_aerosol_type == 0 )  WRITE( io, 14 ) nsect
     WRITE( io, 15 ) ncc, listspec, mass_fracs_a, mass_fracs_b
+    WRITE( io, 151 ) mass_fracs_a_tra, mass_fracs_b_tra
     IF ( .NOT. salsa_gases_from_chem )  THEN
        WRITE( io, 16 ) ngases_salsa, h2so4_init, hno3_init, nh3_init, ocnv_init, ocsv_init
+       WRITE( io, 161 ) h2so4_tra_init, hno3_tra_init, nh3_tra_init, ocnv_tra_init, ocsv_tra_init
     ENDIF
     WRITE( io, 17 )  init_aerosol_type, init_gases_type
     IF ( init_aerosol_type == 0 )  THEN
@@ -1229,6 +1377,11 @@
     IF ( nesting_salsa )  WRITE( io, 20 )  nesting_salsa
     IF ( nesting_offline_salsa )  WRITE( io, 21 )  nesting_offline_salsa
     WRITE( io, 22 ) salsa_emission_mode
+    IF ( is_traffic )  THEN
+       WRITE( io, '(A)' ) '       Dual-population (traffic/non-traffic): ON'
+    ELSE
+       WRITE( io, '(A)' ) '       Dual-population (traffic/non-traffic): OFF'
+    ENDIF
     IF ( salsa_emission_mode == 'uniform' )  THEN
        WRITE( io, 23 ) surface_aerosol_flux, aerosol_flux_dpg, aerosol_flux_sigmag,                &
                        aerosol_flux_mass_fracs_a
@@ -1247,7 +1400,7 @@
 
 1   FORMAT (//' SALSA information:'/                                                               &
               ' ------------------------------'/)
-2   FORMAT ('    Starts at: skip_time_do_salsa = ', F10.2, '  s')
+2   FORMAT ('    Starts at: salsa_start_time = ', F10.2, '  s')
 3   FORMAT (/'    Timestep: dt_salsa = ', F6.2, '  s')
 4   FORMAT (/'    Array shape (z,y,x,bins):'/                                                      &
              '       aerosol_number:  ', 4(I5))
@@ -1267,10 +1420,13 @@
 25  FORMAT (/'    Bin geometric mean diameters (in metres): ', 12(ES10.2E3))
 14  FORMAT  ('    Initial number concentration in bins at the lowest level (#/m**3):', 9(ES10.2E3))
 15  FORMAT (/'    Number of chemical components used: ', I1,/                                      &
-             '       Species: ',7(A6),/                                                            &
+             '       Species: ',12(A6),/                                                            &
              '    Initial relative contribution of each species to particle volume in:',/          &
-             '       a-bins: ', 7(F6.3),/                                                          &
-             '       b-bins: ', 7(F6.3))
+             '       a-bins: ', 12(F6.3),/                                                          &
+             '       b-bins: ', 12(F6.3))
+151 FORMAT (/'    Traffic (pop=2) relative contribution of each species to particle volume in:',/   &
+             '       a-bins: ', 12(F6.3),/                                                          &
+             '       b-bins: ', 12(F6.3))
 16  FORMAT (/'    Number of gaseous tracers used: ', I1,/                                          &
              '    Initial gas concentrations:',/                                                   &
              '       H2SO4: ',ES12.4E3, ' #/m**3',/                                                &
@@ -1278,6 +1434,12 @@
              '       NH3:   ',ES12.4E3, ' #/m**3',/                                                &
              '       OCNV:  ',ES12.4E3, ' #/m**3',/                                                &
              '       OCSV:  ',ES12.4E3, ' #/m**3')
+161 FORMAT (/'    Traffic (pop=2) initial gas concentrations:',/                                   &
+             '       H2SO4_tra: ',ES12.4E3, ' #/m**3',/                                            &
+             '       HNO3_tra:  ',ES12.4E3, ' #/m**3',/                                            &
+             '       NH3_tra:   ',ES12.4E3, ' #/m**3',/                                            &
+             '       OCNV_tra:  ',ES12.4E3, ' #/m**3',/                                            &
+             '       OCSV_tra:  ',ES12.4E3, ' #/m**3')
 17  FORMAT (/'   Initialising concentrations: ', /                                                 &
              '      Aerosol size distribution: init_aerosol_type = ', I1,/                         &
              '      Gas concentrations: init_gases_type = ', I1 )
@@ -1291,7 +1453,7 @@
 23  FORMAT (/'      surface_aerosol_flux = ', ES12.4E3, ' #/m**2/s', /                             &
              '      aerosol_flux_dpg     =  ', 7(F7.3), ' (m)', /                                  &
              '      aerosol_flux_sigmag  =  ', 7(F7.2), /                                          &
-             '      aerosol_mass_fracs_a =  ', 7(ES12.4E3) )
+             '      aerosol_mass_fracs_a =  ', 12(ES12.4E3) )
 24  FORMAT (/'      (currently all emissions are soluble!)')
 26  FORMAT (/'   Boundary conditions for aerosols:', /                                             &
              '      bottom/top:   ',A10,' / ',A10, /                                               &
@@ -1303,15 +1465,16 @@
 
  END SUBROUTINE salsa_header
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Allocate SALSA arrays and define pointers if required
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_init_arrays
 
     USE advec_ws,                                                                                  &
-        ONLY: ws_init_flags_scalar
+        ONLY:  ws_init_flags_scalar
 
     IMPLICIT NONE
 
@@ -1319,6 +1482,7 @@
     INTEGER(iwp) ::  i               !< loop index for allocating
     INTEGER(iwp) ::  ii              !< index for indexing chemical components
     INTEGER(iwp) ::  lsp             !< loop index for chem species in the chemistry model
+
 
     gases_available = 0
 !
@@ -1345,6 +1509,8 @@
     nbins_aerosol = end_subrange_2b   ! total number of aerosol size bins
 !
 !-- Create index tables for different aerosol components
+!-- For restart runs, we still need to call this to set up the structure,
+!-- but the actual ncc and listspec will be overwritten by the restart file.
     CALL component_index_constructor( prtcl, ncc, maxspec, listspec )
 
     ncomponents_mass = ncc
@@ -1380,36 +1546,70 @@
        index_nh = get_index( prtcl, 'NH' )
        ii = ii + 1
     ENDIF
+! MODIFICATION: Added index assignments for new trace metal species
+    IF ( is_used( prtcl, 'PB' ) )  THEN
+       index_pb = get_index( prtcl, 'PB' )
+       ii = ii + 1
+    ENDIF
+    IF ( is_used( prtcl, 'HG' ) )  THEN
+       index_hg = get_index( prtcl, 'HG' )
+       ii = ii + 1
+    ENDIF
+    IF ( is_used( prtcl, 'NI' ) )  THEN
+       index_ni = get_index( prtcl, 'NI' )
+       ii = ii + 1
+    ENDIF
+    IF ( is_used( prtcl, 'CD' ) )  THEN
+       index_cd = get_index( prtcl, 'CD' )
+       ii = ii + 1
+    ENDIF
+    IF ( is_used( prtcl, 'AS' ) )  THEN
+       index_as = get_index( prtcl, 'AS' )
+       ii = ii + 1
+    ENDIF
 !
 !-- All species must be known
-    IF ( ii /= ncc )  THEN
-       message_string = 'Unknown aerosol species/component(s) given in the initialization'
-       CALL message( 'salsa_mod: salsa_init', 'PA0600', 1, 2, 0, 6, 0 )
+!-- For restart runs, skip this check because the restart file already contains
+!-- the validated species information. The restart reading will overwrite ncc
+!-- and listspec with the values from the restart file. If there is a mismatch,
+!-- it will be caught when reading the restart data itself.
+    IF ( .NOT. read_restart_data_salsa ) THEN
+       IF ( ii /= ncc )  THEN
+          message_string = 'unknown aerosol species/component(s) given in the initialization'
+          CALL message( 'salsa_mod: salsa_init', 'SAL0012', 1, 2, 0, 6, 0 )
+       ENDIF
     ENDIF
 !
 !-- Allocate:
     ALLOCATE( aero(nbins_aerosol), bc_am_t_val(nbins_aerosol*ncomponents_mass),                    &
               bc_an_t_val(nbins_aerosol), bc_gt_t_val(ngases_salsa), bin_low_limits(nbins_aerosol),&
               nsect(nbins_aerosol), massacc(nbins_aerosol) )
-    IF ( nldepo ) ALLOCATE( sedim_vd(nzb:nzt+1,nysg:nyng,nxlg:nxrg,nbins_aerosol) )
+    IF ( nldepo ) ALLOCATE( sedim_vd(nzb:nzt+1,nbins_aerosol) )
+    ALLOCATE( tra_answs(1:10000,nbins_aerosol) )
+    ALLOCATE( tra_amsws(1:10000,nbins_aerosol*ncomponents_mass) )
+    tra_answs = 0.0_wp
+    tra_amsws = 0.0_wp
     ALLOCATE( ra_dry(nzb:nzt+1,nysg:nyng,nxlg:nxrg,nbins_aerosol) )
+!
+!-- Set number of populations based on traffic tracking
+    npop = MERGE( 2, 1, is_traffic )
 !
 !-- Initialise the sectional particle size distribution
     CALL set_sizebins
 !
 !-- Aerosol number concentration
     ALLOCATE( aerosol_number(nbins_aerosol) )
-    ALLOCATE( nconc_1(nzb:nzt+1,nysg:nyng,nxlg:nxrg,nbins_aerosol),                                &
-              nconc_2(nzb:nzt+1,nysg:nyng,nxlg:nxrg,nbins_aerosol),                                &
-              nconc_3(nzb:nzt+1,nysg:nyng,nxlg:nxrg,nbins_aerosol) )
+    ALLOCATE( nconc_1(nzb:nzt+1,nysg:nyng,nxlg:nxrg,npop,nbins_aerosol),                           &
+              nconc_2(nzb:nzt+1,nysg:nyng,nxlg:nxrg,npop,nbins_aerosol),                           &
+              nconc_3(nzb:nzt+1,nysg:nyng,nxlg:nxrg,npop,nbins_aerosol) )
     nconc_1 = 0.0_wp
     nconc_2 = 0.0_wp
     nconc_3 = 0.0_wp
 
     DO i = 1, nbins_aerosol
-       aerosol_number(i)%conc(nzb:nzt+1,nysg:nyng,nxlg:nxrg)    => nconc_1(:,:,:,i)
-       aerosol_number(i)%conc_p(nzb:nzt+1,nysg:nyng,nxlg:nxrg)  => nconc_2(:,:,:,i)
-       aerosol_number(i)%tconc_m(nzb:nzt+1,nysg:nyng,nxlg:nxrg) => nconc_3(:,:,:,i)
+       aerosol_number(i)%conc(nzb:nzt+1,nysg:nyng,nxlg:nxrg)    => nconc_1(:,:,:,1,i)
+       aerosol_number(i)%conc_p(nzb:nzt+1,nysg:nyng,nxlg:nxrg)  => nconc_2(:,:,:,1,i)
+       aerosol_number(i)%tconc_m(nzb:nzt+1,nysg:nyng,nxlg:nxrg) => nconc_3(:,:,:,1,i)
        ALLOCATE( aerosol_number(i)%flux_s(nzb+1:nzt,0:threads_per_task-1),                         &
                  aerosol_number(i)%diss_s(nzb+1:nzt,0:threads_per_task-1),                         &
                  aerosol_number(i)%flux_l(nzb+1:nzt,nys:nyn,0:threads_per_task-1),                 &
@@ -1424,19 +1624,41 @@
     ENDDO
 
 !
+!-- Aerosol number concentration (traffic, pop=2)
+    IF ( is_traffic )  THEN
+    ALLOCATE( aerosol_number_tra(nbins_aerosol) )
+    DO i = 1, nbins_aerosol
+       aerosol_number_tra(i)%conc(nzb:nzt+1,nysg:nyng,nxlg:nxrg)    => nconc_1(:,:,:,2,i)
+       aerosol_number_tra(i)%conc_p(nzb:nzt+1,nysg:nyng,nxlg:nxrg)  => nconc_2(:,:,:,2,i)
+       aerosol_number_tra(i)%tconc_m(nzb:nzt+1,nysg:nyng,nxlg:nxrg) => nconc_3(:,:,:,2,i)
+       ALLOCATE( aerosol_number_tra(i)%flux_s(nzb+1:nzt,0:threads_per_task-1),                     &
+                 aerosol_number_tra(i)%diss_s(nzb+1:nzt,0:threads_per_task-1),                     &
+                 aerosol_number_tra(i)%flux_l(nzb+1:nzt,nys:nyn,0:threads_per_task-1),             &
+                 aerosol_number_tra(i)%diss_l(nzb+1:nzt,nys:nyn,0:threads_per_task-1),             &
+                 aerosol_number_tra(i)%init(nzb:nzt+1),                                            &
+                 aerosol_number_tra(i)%sums_ws_l(nzb:nzt+1,0:threads_per_task-1) )
+       aerosol_number_tra(i)%init = nclim
+       IF ( include_emission  .OR.  ( nldepo  .AND.  nldepo_surf ) )  THEN
+          ALLOCATE( aerosol_number_tra(i)%source(nys:nyn,nxl:nxr) )
+          aerosol_number_tra(i)%source = 0.0_wp
+       ENDIF
+    ENDDO
+    ENDIF
+
+!
 !-- Aerosol mass concentration
     ALLOCATE( aerosol_mass(ncomponents_mass*nbins_aerosol) )
-    ALLOCATE( mconc_1(nzb:nzt+1,nysg:nyng,nxlg:nxrg,ncomponents_mass*nbins_aerosol),               &
-              mconc_2(nzb:nzt+1,nysg:nyng,nxlg:nxrg,ncomponents_mass*nbins_aerosol),               &
-              mconc_3(nzb:nzt+1,nysg:nyng,nxlg:nxrg,ncomponents_mass*nbins_aerosol) )
+    ALLOCATE( mconc_1(nzb:nzt+1,nysg:nyng,nxlg:nxrg,npop,ncomponents_mass*nbins_aerosol),           &
+              mconc_2(nzb:nzt+1,nysg:nyng,nxlg:nxrg,npop,ncomponents_mass*nbins_aerosol),           &
+              mconc_3(nzb:nzt+1,nysg:nyng,nxlg:nxrg,npop,ncomponents_mass*nbins_aerosol) )
     mconc_1 = 0.0_wp
     mconc_2 = 0.0_wp
     mconc_3 = 0.0_wp
 
     DO i = 1, ncomponents_mass*nbins_aerosol
-       aerosol_mass(i)%conc(nzb:nzt+1,nysg:nyng,nxlg:nxrg)    => mconc_1(:,:,:,i)
-       aerosol_mass(i)%conc_p(nzb:nzt+1,nysg:nyng,nxlg:nxrg)  => mconc_2(:,:,:,i)
-       aerosol_mass(i)%tconc_m(nzb:nzt+1,nysg:nyng,nxlg:nxrg) => mconc_3(:,:,:,i)
+       aerosol_mass(i)%conc(nzb:nzt+1,nysg:nyng,nxlg:nxrg)    => mconc_1(:,:,:,1,i)
+       aerosol_mass(i)%conc_p(nzb:nzt+1,nysg:nyng,nxlg:nxrg)  => mconc_2(:,:,:,1,i)
+       aerosol_mass(i)%tconc_m(nzb:nzt+1,nysg:nyng,nxlg:nxrg) => mconc_3(:,:,:,1,i)
        ALLOCATE( aerosol_mass(i)%flux_s(nzb+1:nzt,0:threads_per_task-1),                           &
                  aerosol_mass(i)%diss_s(nzb+1:nzt,0:threads_per_task-1),                           &
                  aerosol_mass(i)%flux_l(nzb+1:nzt,nys:nyn,0:threads_per_task-1),                   &
@@ -1449,6 +1671,28 @@
           aerosol_mass(i)%source = 0.0_wp
        ENDIF
     ENDDO
+
+!
+!-- Aerosol mass concentration (traffic, pop=2)
+    IF ( is_traffic )  THEN
+    ALLOCATE( aerosol_mass_tra(ncomponents_mass*nbins_aerosol) )
+    DO i = 1, ncomponents_mass*nbins_aerosol
+       aerosol_mass_tra(i)%conc(nzb:nzt+1,nysg:nyng,nxlg:nxrg)    => mconc_1(:,:,:,2,i)
+       aerosol_mass_tra(i)%conc_p(nzb:nzt+1,nysg:nyng,nxlg:nxrg)  => mconc_2(:,:,:,2,i)
+       aerosol_mass_tra(i)%tconc_m(nzb:nzt+1,nysg:nyng,nxlg:nxrg) => mconc_3(:,:,:,2,i)
+       ALLOCATE( aerosol_mass_tra(i)%flux_s(nzb+1:nzt,0:threads_per_task-1),                       &
+                 aerosol_mass_tra(i)%diss_s(nzb+1:nzt,0:threads_per_task-1),                       &
+                 aerosol_mass_tra(i)%flux_l(nzb+1:nzt,nys:nyn,0:threads_per_task-1),               &
+                 aerosol_mass_tra(i)%diss_l(nzb+1:nzt,nys:nyn,0:threads_per_task-1),               &
+                 aerosol_mass_tra(i)%init(nzb:nzt+1),                                              &
+                 aerosol_mass_tra(i)%sums_ws_l(nzb:nzt+1,0:threads_per_task-1)  )
+       aerosol_mass_tra(i)%init = mclim
+       IF ( include_emission  .OR.  ( nldepo  .AND.  nldepo_surf ) )  THEN
+          ALLOCATE( aerosol_mass_tra(i)%source(nys:nyn,nxl:nxr) )
+          aerosol_mass_tra(i)%source = 0.0_wp
+       ENDIF
+    ENDDO
+    ENDIF
 
 !
 !-- Surface fluxes: answs = aerosol number, amsws = aerosol mass
@@ -1468,6 +1712,12 @@
     ALLOCATE( surf_usm%amsws(1:surf_usm%ns,nbins_aerosol*ncomponents_mass) )
     surf_usm%answs = 0.0_wp
     surf_usm%amsws = 0.0_wp
+
+    ALLOCATE( surf_top%answs(1:surf_top%ns,nbins_aerosol) )
+    ALLOCATE( surf_top%amsws(1:surf_top%ns,nbins_aerosol*ncomponents_mass) )
+    surf_top%answs = 0.0_wp
+    surf_top%amsws = 0.0_wp
+
 !
 !-- Concentration of gaseous tracers (1. SO4, 2. HNO3, 3. NH3, 4. OCNV, 5. OCSV)
 !-- (number concentration (#/m3) )
@@ -1493,15 +1743,30 @@
              CASE ( 'OCSV', 'ocsv' )
                 gases_available = gases_available + 1
                 gas_index_chem(5) = lsp
+             CASE ( 'H2SO4_tra', 'h2so4_tra', 'SO4_T', 'so4_t' )
+                gases_available = gases_available + 1
+                gas_index_chem(6) = lsp
+             CASE ( 'HNO3_tra', 'hno3_tra', 'NO3_T', 'no3_t' )
+                gases_available = gases_available + 1
+                gas_index_chem(7) = lsp
+             CASE ( 'NH3_tra', 'nh3_tra', 'NH3_T', 'nh3_t' )
+                gases_available = gases_available + 1
+                gas_index_chem(8) = lsp
+             CASE ( 'OCNV_tra', 'ocnv_tra', 'OCN_T', 'ocn_t' )
+                gases_available = gases_available + 1
+                gas_index_chem(9) = lsp
+             CASE ( 'OCSV_tra', 'ocsv_tra', 'OCS_T', 'ocs_t' )
+                gases_available = gases_available + 1
+                gas_index_chem(10) = lsp
           END SELECT
        ENDDO
 
-       IF ( gases_available == ngases_salsa )  THEN
+       IF ( gases_available >= 5 )  THEN
           salsa_gases_from_chem = .TRUE.
        ELSE
           WRITE( message_string, * ) 'SALSA is run together with chemistry but not all gaseous '// &
                                      'components are provided by kpp (H2SO4, HNO3, NH3, OCNV, OCSV)'
-       CALL message( 'check_parameters', 'PA0599', 1, 2, 0, 6, 0 )
+       CALL message( 'check_parameters', 'SAL0013', 1, 2, 0, 6, 0 )
        ENDIF
 
     ELSE
@@ -1526,7 +1791,7 @@
                     salsa_gas(i)%sums_ws_l(nzb:nzt+1,0:threads_per_task-1) )
           salsa_gas(i)%init = nclim
           IF ( include_emission )  THEN
-             ALLOCATE( salsa_gas(i)%source(nys:nys,nxl:nxr) )
+             ALLOCATE( salsa_gas(i)%source(nys:nyn,nxl:nxr) )
              salsa_gas(i)%source = 0.0_wp
           ENDIF
        ENDDO
@@ -1541,15 +1806,15 @@
        surf_lsm%gtsws = 0.0_wp
        ALLOCATE( surf_usm%gtsws(1:surf_usm%ns,ngases_salsa) )
        surf_usm%gtsws = 0.0_wp
+!
+!--    Top surface
+       ALLOCATE( surf_top%gtsws(1:surf_top%ns,ngases_salsa) )
+       surf_top%gtsws = 0.0_wp
     ENDIF
 
     IF ( ws_scheme_sca )  THEN
-
-       IF ( salsa )  THEN
-          ALLOCATE( sums_salsa_ws_l(nzb:nzt+1,0:threads_per_task-1) )
-          sums_salsa_ws_l = 0.0_wp
-       ENDIF
-
+       ALLOCATE( sums_salsa_ws_l(nzb:nzt+1,0:threads_per_task-1) )
+       sums_salsa_ws_l = 0.0_wp
     ENDIF
 
 !
@@ -1588,19 +1853,20 @@
                                   bc_dirichlet_aer_n  .OR.  bc_radiation_aer_n,                    &
                                   bc_dirichlet_aer_r  .OR.  bc_radiation_aer_r,                    &
                                   bc_dirichlet_aer_s  .OR.  bc_radiation_aer_s,                    &
-                                  salsa_advc_flags_s, .TRUE. )
+                                  salsa_advc_flags_s, extensive_degrad = .TRUE.,                   &
+                                  alternative_communicator = communicator_salsa )
     ENDIF
-
 
  END SUBROUTINE salsa_init_arrays
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Initialization of SALSA. Based on salsa_initialize in UCLALES-SALSA.
 !> Subroutines salsa_initialize, SALSAinit and DiagInitAero in UCLALES-SALSA are
 !> also merged here.
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_init
 
     IMPLICIT NONE
@@ -1610,6 +1876,7 @@
     INTEGER(iwp) :: ic  !< loop index for aerosol mass bins
     INTEGER(iwp) :: ig  !< loop index for gases
     INTEGER(iwp) :: j   !<
+
 
     IF ( debug_output )  CALL debug_message( 'salsa_init', 'start' )
 
@@ -1627,16 +1894,20 @@
           salsa_gas(3)%conc = nh3_init
           salsa_gas(4)%conc = ocnv_init
           salsa_gas(5)%conc = ocsv_init
+          salsa_gas(6)%conc = h2so4_tra_init
+          salsa_gas(7)%conc = hno3_tra_init
+          salsa_gas(8)%conc = nh3_tra_init
+          salsa_gas(9)%conc = ocnv_tra_init
+          salsa_gas(10)%conc = ocsv_tra_init
        ENDIF
        DO  ig = 1, ngases_salsa
-          salsa_gas(ig)%conc_p    = 0.0_wp
+          salsa_gas(ig)%conc_p    = salsa_gas(ig)%conc
           salsa_gas(ig)%tconc_m   = 0.0_wp
           salsa_gas(ig)%flux_s    = 0.0_wp
           salsa_gas(ig)%diss_s    = 0.0_wp
           salsa_gas(ig)%flux_l    = 0.0_wp
           salsa_gas(ig)%diss_l    = 0.0_wp
           salsa_gas(ig)%sums_ws_l = 0.0_wp
-          salsa_gas(ig)%conc_p    = salsa_gas(ig)%conc
        ENDDO
 !
 !--    Set initial value for gas compound tracer
@@ -1645,6 +1916,11 @@
        salsa_gas(3)%init = nh3_init
        salsa_gas(4)%init = ocnv_init
        salsa_gas(5)%init = ocsv_init
+       salsa_gas(6)%init = h2so4_tra_init
+       salsa_gas(7)%init = hno3_tra_init
+       salsa_gas(8)%init = nh3_tra_init
+       salsa_gas(9)%init = ocnv_tra_init
+       salsa_gas(10)%init = ocsv_tra_init
     ENDIF
 !
 !-- Aerosol radius in each bin: dry and wet (m)
@@ -1680,6 +1956,28 @@
        aerosol_mass(ic)%sums_ws_l = 0.0_wp
     ENDDO
 !
+!-- Initialize traffic time-level arrays
+    IF ( is_traffic )  THEN
+    DO  ib = 1, nbins_aerosol
+       aerosol_number_tra(ib)%conc_p    = aerosol_number_tra(ib)%conc
+       aerosol_number_tra(ib)%tconc_m   = 0.0_wp
+       aerosol_number_tra(ib)%flux_s    = 0.0_wp
+       aerosol_number_tra(ib)%diss_s    = 0.0_wp
+       aerosol_number_tra(ib)%flux_l    = 0.0_wp
+       aerosol_number_tra(ib)%diss_l    = 0.0_wp
+       aerosol_number_tra(ib)%sums_ws_l = 0.0_wp
+    ENDDO
+    DO  ic = 1, ncomponents_mass*nbins_aerosol
+       aerosol_mass_tra(ic)%conc_p    = aerosol_mass_tra(ic)%conc
+       aerosol_mass_tra(ic)%tconc_m   = 0.0_wp
+       aerosol_mass_tra(ic)%flux_s    = 0.0_wp
+       aerosol_mass_tra(ic)%diss_s    = 0.0_wp
+       aerosol_mass_tra(ic)%flux_l    = 0.0_wp
+       aerosol_mass_tra(ic)%diss_l    = 0.0_wp
+       aerosol_mass_tra(ic)%sums_ws_l = 0.0_wp
+    ENDDO
+    ENDIF
+!
 !
 !-- Initialise the deposition scheme and surface types
     IF ( nldepo )  CALL init_deposition
@@ -1700,7 +1998,8 @@
 
  END SUBROUTINE salsa_init
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Initializes particle size distribution grid by calculating size bin limits
@@ -1723,7 +2022,7 @@
 !
 !> Bug fixes for box model + updated for the new aerosol datatype:
 !> Juha Tonttila (FMI) 2014
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE set_sizebins
 
     IMPLICIT NONE
@@ -1733,11 +2032,12 @@
 
     REAL(wp) ::  ratio_d  !< ratio of the upper and lower diameter of subranges
 
+
     aero(:)%dwet     = 1.0E-10_wp
     aero(:)%veqh2o   = 1.0E-10_wp
     aero(:)%numc     = nclim
     aero(:)%core     = 1.0E-10_wp
-    DO  cc = 1, maxspec+1    ! 1:SO4, 2:OC, 3:BC, 4:DU, 5:SS, 6:NO, 7:NH, 8:H2O
+    DO  cc = 1, maxspec+1    ! 1:SO4, 2:OC, 3:BC, 4:DU, 5:SS, 6:NO, 7:NH, 8:H2O, 9:PB, 10:HG, 11:NI, 12:CD, 13:AS
        aero(:)%volc(cc) = 0.0_wp
     ENDDO
 !
@@ -1788,7 +2088,8 @@
 
  END SUBROUTINE set_sizebins
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Initilize altitude-dependent aerosol size distributions and compositions.
@@ -1797,13 +2098,17 @@
 !< by the given total number and mass concentration.
 !>
 !> Tomi Raatikainen, FMI, 29.2.2016
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE aerosol_init
 
     USE netcdf_data_input_mod,                                                                     &
-        ONLY:  check_existence, close_input_file, get_dimension_length,                            &
-               get_attribute, get_variable,                                                        &
-               inquire_num_variables, inquire_variable_names,                                      &
+        ONLY:  check_existence,                                                                    &
+               close_input_file,                                                                   &
+               get_dimension_length,                                                               &
+               get_attribute,                                                                      &
+               get_variable,                                                                       &
+               inquire_num_variables,                                                              &
+               inquire_variable_names,                                                             &
                open_read_file
 
     IMPLICIT NONE
@@ -1841,12 +2146,14 @@
     REAL(wp), DIMENSION(0:nz+1,nbins_aerosol)   ::  pndist  !< vertical profile of size dist. (#/m3)
     REAL(wp), DIMENSION(0:nz+1,maxspec)         ::  pmf2a   !< mass distributions in subrange 2a
     REAL(wp), DIMENSION(0:nz+1,maxspec)         ::  pmf2b   !< mass distributions in subrange 2b
+    REAL(wp), DIMENSION(:,:), ALLOCATABLE       ::  pmf2a_tra  !< traffic mass distributions in subrange 2a
+    REAL(wp), DIMENSION(:,:), ALLOCATABLE       ::  pmf2b_tra  !< traffic mass distributions in subrange 2b
 
     REAL(wp), DIMENSION(:), ALLOCATABLE ::  pr_dmid  !< vertical profile of aerosol bin diameters
-    REAL(wp), DIMENSION(:), ALLOCATABLE ::  pr_z     !< z levels of profiles
 
     REAL(wp), DIMENSION(:,:), ALLOCATABLE ::  pr_mass_fracs_a  !< mass fraction: a
     REAL(wp), DIMENSION(:,:), ALLOCATABLE ::  pr_mass_fracs_b  !< and b
+
 
     cc_in2mod = 0
     prunmode = 1
@@ -1883,27 +2190,24 @@
 !--       Inquire vertical dimension and number of aerosol chemical components
           CALL get_dimension_length( id_dyn, pr_nz, 'z' )
           IF ( pr_nz /= nz )  THEN
-             WRITE( message_string, * ) 'Number of inifor horizontal grid points does not match '//&
-                                        'the number of numeric grid points.'
-             CALL message( 'aerosol_init', 'PA0601', 1, 2, 0, 6, 0 )
+             WRITE( message_string, * ) 'vertical dimension of the number of aerosol chemical ' // &
+                                        'components = ', pr_nz, ' in the dynamic driver&does ' //  &
+                                        'not match the number of model grid points = ', nz
+             CALL message( 'aerosol_init', 'SAL0014', 1, 2, 0, 6, 0 )
           ENDIF
           CALL get_dimension_length( id_dyn, pr_ncc, 'composition_index' )
 !
 !--       Allocate memory
-          ALLOCATE( pr_z(1:pr_nz), pr_mass_fracs_a(nzb:nzt+1,pr_ncc),                              &
-                    pr_mass_fracs_b(nzb:nzt+1,pr_ncc) )
+          ALLOCATE( pr_mass_fracs_a(nzb+1:nzt,pr_ncc), pr_mass_fracs_b(nzb+1:nzt,pr_ncc) )
           pr_mass_fracs_a = 0.0_wp
           pr_mass_fracs_b = 0.0_wp
-!
-!--       Read vertical levels
-          CALL get_variable( id_dyn, 'z', pr_z )
 !
 !--       Read the names of chemical components
           IF ( check_existence( var_names, 'composition_name' ) )  THEN
              CALL get_variable( id_dyn, 'composition_name', cc_name, pr_ncc )
           ELSE
-             WRITE( message_string, * ) 'Missing composition_name in ' // TRIM( input_file_dynamic )
-             CALL message( 'aerosol_init', 'PA0655', 1, 2, 0, 6, 0 )
+             WRITE( message_string, * ) 'missing "composition_name" in dynamic driver'
+             CALL message( 'aerosol_init', 'SAL0015', 1, 2, 0, 6, 0 )
           ENDIF
 !
 !--       Define the index of each chemical component in the model
@@ -1923,51 +2227,67 @@
                    cc_in2mod(6) = ic
                 CASE ( 'NH3', 'nh3', 'NH4', 'nh4', 'NH', 'nh' )
                    cc_in2mod(7) = ic
+! MODIFICATION: Added case statements for new trace metal species
+                CASE ( 'PB', 'pb', 'Pb', 'lead', 'Lead' )
+                   cc_in2mod(8) = ic
+                CASE ( 'HG', 'hg', 'Hg', 'mercury', 'Mercury' )
+                   cc_in2mod(9) = ic
+                CASE ( 'NI', 'ni', 'Ni', 'nickel', 'Nickel' )
+                   cc_in2mod(10) = ic
+                CASE ( 'CD', 'cd', 'Cd', 'cadmium', 'Cadmium' )
+                   cc_in2mod(11) = ic
+                CASE ( 'AS', 'as', 'As', 'arsenic', 'Arsenic' )
+                   cc_in2mod(12) = ic
              END SELECT
           ENDDO
 
           IF ( SUM( cc_in2mod ) == 0 )  THEN
-             message_string = 'None of the aerosol chemical components in ' // TRIM(               &
-                              input_file_dynamic ) // ' correspond to ones applied in SALSA.'
-             CALL message( 'salsa_mod: aerosol_init', 'PA0602', 2, 2, 0, 6, 0 )
+             message_string = 'none of the aerosol chemical components in the dynamic driver ' //  &
+                              'correspond to ones applied in SALSA'
+             CALL message( 'salsa_mod: aerosol_init', 'SAL0016', 2, 2, 0, 6, 0 )
           ENDIF
 !
 !--       Vertical profiles of mass fractions of different chemical components:
           IF ( check_existence( var_names, 'init_atmosphere_mass_fracs_a' ) )  THEN
              CALL get_variable( id_dyn, 'init_atmosphere_mass_fracs_a', pr_mass_fracs_a,           &
-                                0, pr_ncc-1, 0, pr_nz-1 )
+                                0, pr_ncc-1, 0, nz-1, nbgp=0 )
           ELSE
-             WRITE( message_string, * ) 'Missing init_atmosphere_mass_fracs_a in ' //              &
-                                        TRIM( input_file_dynamic )
-             CALL message( 'aerosol_init', 'PA0656', 1, 2, 0, 6, 0 )
+             WRITE( message_string, * ) 'missing "init_atmosphere_mass_fracs_a" in dynamic driver'
+             CALL message( 'aerosol_init', 'SAL0015', 1, 2, 0, 6, 0 )
           ENDIF
           CALL get_variable( id_dyn, 'init_atmosphere_mass_fracs_b', pr_mass_fracs_b,              &
-                             0, pr_ncc-1, 0, pr_nz-1  )
+                             0, pr_ncc-1, 0, nz-1, nbgp=0  )
 !
 !--       Match the input data with the chemical composition applied in the model
           DO  ic = 1, maxspec
              ss = cc_in2mod(ic)
              IF ( ss == 0 )  CYCLE
-             pmf2a(nzb+1:nzt+1,ic) = pr_mass_fracs_a(nzb:nzt,ss)
-             pmf2b(nzb+1:nzt+1,ic) = pr_mass_fracs_b(nzb:nzt,ss)
+             pmf2a(nzb+1:nzt,ic) = pr_mass_fracs_a(nzb+1:nzt,ss)
+             pmf2b(nzb+1:nzt,ic) = pr_mass_fracs_b(nzb+1:nzt,ss)
           ENDDO
+!
+!--       Remove NaN and enforce non-negative mass fractions
+          WHERE ( pmf2a /= pmf2a )  pmf2a = 0.0_wp
+          WHERE ( pmf2b /= pmf2b )  pmf2b = 0.0_wp
+          pmf2a = MAX( pmf2a, 0.0_wp )
+          pmf2b = MAX( pmf2b, 0.0_wp )
 !
 !--       Aerosol concentrations: lod=1 (vertical profile of sectional number size distribution)
           CALL get_attribute( id_dyn, 'lod', lod_aero, .FALSE., 'init_atmosphere_aerosol' )
           IF ( lod_aero /= 1 )  THEN
-             message_string = 'Currently only lod=1 accepted for init_atmosphere_aerosol'
-             CALL message( 'salsa_mod: aerosol_init', 'PA0603', 2, 2, 0, 6, 0 )
+             message_string = 'currently only lod=1 accepted for init_atmosphere_aerosol'
+             CALL message( 'salsa_mod: aerosol_init', 'SAL0017', 2, 2, 0, 6, 0 )
           ELSE
 !
 !--          Bin mean diameters in the input file
              CALL get_dimension_length( id_dyn, pr_nbins, 'Dmid')
              IF ( pr_nbins /= nbins_aerosol )  THEN
-                message_string = 'Number of size bins in init_atmosphere_aerosol does not match '  &
-                                 // 'with that applied in the model'
-                CALL message( 'salsa_mod: aerosol_init', 'PA0604', 2, 2, 0, 6, 0 )
+                message_string = 'number of size bins in init_atmosphere_aerosol does not match '  &
+                                 // 'with that applied in the model set-up'
+                CALL message( 'salsa_mod: aerosol_init', 'SAL0018', 2, 2, 0, 6, 0 )
              ENDIF
 
-             ALLOCATE( pr_dmid(pr_nbins) )
+             ALLOCATE( pr_dmid(nbins_aerosol) )
              pr_dmid    = 0.0_wp
 
              CALL get_variable( id_dyn, 'Dmid', pr_dmid )
@@ -1976,15 +2296,18 @@
 !--          applied in the model
              IF ( ANY( ABS( ( aero(1:nbins_aerosol)%dmid - pr_dmid ) /                             &
                               aero(1:nbins_aerosol)%dmid )  > 0.1_wp )  ) THEN
-                message_string = 'Mean diameters of the aerosol size bins in ' // TRIM(            &
-                                 input_file_dynamic ) // ' do not match with the sectional '//     &
-                                 'representation of the model.'
-                CALL message( 'salsa_mod: aerosol_init', 'PA0605', 2, 2, 0, 6, 0 )
+                message_string = 'mean diameters of the aerosol size bins in the dynamic driver' //&
+                                 ' do not match with the sectional representation of the model'
+                CALL message( 'salsa_mod: aerosol_init', 'SAL0019', 2, 2, 0, 6, 0 )
              ENDIF
 !
 !--          Inital aerosol concentrations
              CALL get_variable( id_dyn, 'init_atmosphere_aerosol', pndist(nzb+1:nzt,:),            &
-                                0, pr_nbins-1, 0, pr_nz-1 )
+                                0, nbins_aerosol-1, 0, nz-1, nbgp=0 )
+!
+!--          Remove NaN and enforce lower bound
+             WHERE ( pndist /= pndist )  pndist = nclim
+             pndist = MAX( pndist, nclim )
           ENDIF
 !
 !--       Set bottom and top boundary condition (Neumann)
@@ -2023,11 +2346,31 @@
              pmf2a(:,7) = 0.0_wp
              pmf2b(:,7) = 0.0_wp
           ENDIF
+! MODIFICATION: Added initialization for new trace metal species
+          IF ( index_pb < 0 )  THEN
+             pmf2a(:,8) = 0.0_wp
+             pmf2b(:,8) = 0.0_wp
+          ENDIF
+          IF ( index_hg < 0 )  THEN
+             pmf2a(:,9) = 0.0_wp
+             pmf2b(:,9) = 0.0_wp
+          ENDIF
+          IF ( index_ni < 0 )  THEN
+             pmf2a(:,10) = 0.0_wp
+             pmf2b(:,10) = 0.0_wp
+          ENDIF
+          IF ( index_cd < 0 )  THEN
+             pmf2a(:,11) = 0.0_wp
+             pmf2b(:,11) = 0.0_wp
+          ENDIF
+          IF ( index_as < 0 )  THEN
+             pmf2a(:,12) = 0.0_wp
+             pmf2b(:,12) = 0.0_wp
+          ENDIF
 
           IF ( SUM( pmf2a ) < 0.00001_wp  .AND.  SUM( pmf2b ) < 0.00001_wp )  THEN
-             message_string = 'Error in initialising mass fractions of chemical components. ' //   &
-                              'Check that all chemical components are included in parameter file!'
-             CALL message( 'salsa_mod: aerosol_init', 'PA0606', 2, 2, 0, 6, 0 )
+             message_string = 'error in initialising mass fractions of chemical components'
+             CALL message( 'salsa_mod: aerosol_init', 'SAL0020', 2, 2, 0, 6, 0 )
           ENDIF
 !
 !--       Then normalise the mass fraction so that SUM = 1
@@ -2036,22 +2379,22 @@
              IF ( SUM( pmf2b(k,:) ) > 0.0_wp )  pmf2b(k,:) = pmf2b(k,:) / SUM( pmf2b(k,:) )
           ENDDO
 
-          DEALLOCATE( pr_z, pr_mass_fracs_a, pr_mass_fracs_b )
+          DEALLOCATE( pr_mass_fracs_a, pr_mass_fracs_b )
 !
 !--       Close input file
           CALL close_input_file( id_dyn )
 
        ELSE
-          message_string = 'Input file '// TRIM( input_file_dynamic ) // TRIM( coupling_char ) //  &
-                           ' for SALSA missing!'
-          CALL message( 'salsa_mod: aerosol_init', 'PA0607', 1, 2, 0, 6, 0 )
+          message_string = 'input file '// TRIM( input_file_dynamic ) // TRIM( coupling_char ) //  &
+                           ' for SALSA is missing'
+          CALL message( 'salsa_mod: aerosol_init', 'SAL0021', 1, 2, 0, 6, 0 )
 
        ENDIF   ! netcdf_extend
 
 #else
        message_string = 'init_aerosol_type = 1 but preprocessor directive __netcdf is not used '// &
-                        'in compiling!'
-       CALL message( 'salsa_mod: aerosol_init', 'PA0608', 1, 2, 0, 6, 0 )
+                        'in compiling'
+       CALL message( 'salsa_mod: aerosol_init', 'SAL0022', 1, 2, 0, 6, 0 )
 
 #endif
 
@@ -2086,6 +2429,27 @@
           pmf2a(:,7) = mass_fracs_a(index_nh)
           pmf2b(:,7) = mass_fracs_b(index_nh)
        ENDIF
+! MODIFICATION: Added mass fraction initialization for new trace metal species
+       IF ( index_pb > 0 )  THEN
+          pmf2a(:,8) = mass_fracs_a(index_pb)
+          pmf2b(:,8) = mass_fracs_b(index_pb)
+       ENDIF
+       IF ( index_hg > 0 )  THEN
+          pmf2a(:,9) = mass_fracs_a(index_hg)
+          pmf2b(:,9) = mass_fracs_b(index_hg)
+       ENDIF
+       IF ( index_ni > 0 )  THEN
+          pmf2a(:,10) = mass_fracs_a(index_ni)
+          pmf2b(:,10) = mass_fracs_b(index_ni)
+       ENDIF
+       IF ( index_cd > 0 )  THEN
+          pmf2a(:,11) = mass_fracs_a(index_cd)
+          pmf2b(:,11) = mass_fracs_b(index_cd)
+       ENDIF
+       IF ( index_as > 0 )  THEN
+          pmf2a(:,12) = mass_fracs_a(index_as)
+          pmf2b(:,12) = mass_fracs_b(index_as)
+       ENDIF
        DO  k = nzb, nzt+1
           pmf2a(k,:) = pmf2a(k,:) / SUM( pmf2a(k,:) )
           IF ( SUM( pmf2b(k,:) ) > 0.0_wp ) pmf2b(k,:) = pmf2b(k,:) / SUM( pmf2b(k,:) )
@@ -2115,9 +2479,10 @@
 !--       Inquire dimensions:
           CALL get_dimension_length( id_dyn, pr_nz, 'z' )
           IF ( pr_nz /= nz )  THEN
-             WRITE( message_string, * ) 'Number of inifor horizontal grid points does not match '//&
-                                        'the number of numeric grid points.'
-             CALL message( 'aerosol_init', 'PA0609', 1, 2, 0, 6, 0 )
+             WRITE( message_string, * ) 'vertical dimension of the number of aerosol chemical ' // &
+                                        'components = ', pr_nz, ' in the dynamic driver&does ' //  &
+                                        'not match the number of model grid points = ', nz
+             CALL message( 'aerosol_init', 'SAL0014', 1, 2, 0, 6, 0 )
           ENDIF
 !
 !--       Read vertical profiles of gases:
@@ -2142,15 +2507,15 @@
           CALL close_input_file( id_dyn )
 
        ELSEIF ( .NOT. netcdf_extend  .AND.  .NOT.  salsa_gases_from_chem )  THEN
-          message_string = 'Input file '// TRIM( input_file_dynamic ) // TRIM( coupling_char ) //  &
-                           ' for SALSA missing!'
-          CALL message( 'salsa_mod: aerosol_init', 'PA0610', 1, 2, 0, 6, 0 )
+          message_string = 'input file '// TRIM( input_file_dynamic ) // TRIM( coupling_char ) //  &
+                           ' for SALSA missing'
+          CALL message( 'salsa_mod: aerosol_init', 'SAL0021', 1, 2, 0, 6, 0 )
 
        ENDIF   ! netcdf_extend
 #else
        message_string = 'init_gases_type = 1 but preprocessor directive __netcdf is not used in '//&
-                        'compiling!'
-       CALL message( 'salsa_mod: aerosol_init', 'PA0611', 1, 2, 0, 6, 0 )
+                        'compiling'
+       CALL message( 'salsa_mod: aerosol_init', 'SAL0023', 1, 2, 0, 6, 0 )
 
 #endif
 
@@ -2169,8 +2534,8 @@
        pmfoc1a(:) = 0.0_wp
 
     ELSE
-       message_string = 'Either OC or SO4 must be active for aerosol region 1a!'
-       CALL message( 'salsa_mod: aerosol_init', 'PA0612', 1, 2, 0, 6, 0 )
+       message_string = 'either OC or SO4 must be active for aerosol region 1a'
+       CALL message( 'salsa_mod: aerosol_init', 'SAL0024', 1, 2, 0, 6, 0 )
     ENDIF
 
 !
@@ -2289,17 +2654,193 @@
        IF ( index_nh > 0 ) THEN
           CALL set_aero_mass( index_nh, pmf2a(:,7), pmf2b(:,7), pnf2a, pndist, core, arhonh3 )
        ENDIF
+! MODIFICATION: Added calls to set_aero_mass for new trace metal species
+       IF ( index_pb > 0 ) THEN
+          CALL set_aero_mass( index_pb, pmf2a(:,8), pmf2b(:,8), pnf2a, pndist, core, arhopb )
+       ENDIF
+       IF ( index_hg > 0 ) THEN
+          CALL set_aero_mass( index_hg, pmf2a(:,9), pmf2b(:,9), pnf2a, pndist, core, arhohg )
+       ENDIF
+       IF ( index_ni > 0 ) THEN
+          CALL set_aero_mass( index_ni, pmf2a(:,10), pmf2b(:,10), pnf2a, pndist, core, arhoni )
+       ENDIF
+       IF ( index_cd > 0 ) THEN
+          CALL set_aero_mass( index_cd, pmf2a(:,11), pmf2b(:,11), pnf2a, pndist, core, arhocd )
+       ENDIF
+       IF ( index_as > 0 ) THEN
+          CALL set_aero_mass( index_as, pmf2a(:,12), pmf2b(:,12), pnf2a, pndist, core, arhoas )
+       ENDIF
 
     ENDIF
 
+!
+!-- Initialize traffic (pop=2) aerosol concentrations using the same size
+!-- distribution (pndist) but with traffic-specific mass fractions
+    IF ( is_traffic )  THEN
+    IF ( .NOT. read_restart_data_salsa )  THEN
+!
+!--    Build traffic mass fraction arrays for subrange 2 from mass_fracs_a_tra
+       ALLOCATE( pmf2a_tra(0:nz+1,maxspec), pmf2b_tra(0:nz+1,maxspec) )
+       pmf2a_tra = 0.0_wp
+       pmf2b_tra = 0.0_wp
+
+       IF ( index_so4 > 0 )  THEN
+          pmf2a_tra(:,1) = mass_fracs_a_tra(index_so4)
+          pmf2b_tra(:,1) = mass_fracs_b_tra(index_so4)
+       ENDIF
+       IF ( index_oc > 0 )  THEN
+          pmf2a_tra(:,2) = mass_fracs_a_tra(index_oc)
+          pmf2b_tra(:,2) = mass_fracs_b_tra(index_oc)
+       ENDIF
+       IF ( index_bc > 0 )  THEN
+          pmf2a_tra(:,3) = mass_fracs_a_tra(index_bc)
+          pmf2b_tra(:,3) = mass_fracs_b_tra(index_bc)
+       ENDIF
+       IF ( index_du > 0 )  THEN
+          pmf2a_tra(:,4) = mass_fracs_a_tra(index_du)
+          pmf2b_tra(:,4) = mass_fracs_b_tra(index_du)
+       ENDIF
+       IF ( index_ss > 0 )  THEN
+          pmf2a_tra(:,5) = mass_fracs_a_tra(index_ss)
+          pmf2b_tra(:,5) = mass_fracs_b_tra(index_ss)
+       ENDIF
+       IF ( index_no > 0 )  THEN
+          pmf2a_tra(:,6) = mass_fracs_a_tra(index_no)
+          pmf2b_tra(:,6) = mass_fracs_b_tra(index_no)
+       ENDIF
+       IF ( index_nh > 0 )  THEN
+          pmf2a_tra(:,7) = mass_fracs_a_tra(index_nh)
+          pmf2b_tra(:,7) = mass_fracs_b_tra(index_nh)
+       ENDIF
+       IF ( index_pb > 0 )  THEN
+          pmf2a_tra(:,8) = mass_fracs_a_tra(index_pb)
+          pmf2b_tra(:,8) = mass_fracs_b_tra(index_pb)
+       ENDIF
+       IF ( index_hg > 0 )  THEN
+          pmf2a_tra(:,9) = mass_fracs_a_tra(index_hg)
+          pmf2b_tra(:,9) = mass_fracs_b_tra(index_hg)
+       ENDIF
+       IF ( index_ni > 0 )  THEN
+          pmf2a_tra(:,10) = mass_fracs_a_tra(index_ni)
+          pmf2b_tra(:,10) = mass_fracs_b_tra(index_ni)
+       ENDIF
+       IF ( index_cd > 0 )  THEN
+          pmf2a_tra(:,11) = mass_fracs_a_tra(index_cd)
+          pmf2b_tra(:,11) = mass_fracs_b_tra(index_cd)
+       ENDIF
+       IF ( index_as > 0 )  THEN
+          pmf2a_tra(:,12) = mass_fracs_a_tra(index_as)
+          pmf2b_tra(:,12) = mass_fracs_b_tra(index_as)
+       ENDIF
+!
+       DO  k = nzb, nzt+1
+          IF ( SUM( pmf2a_tra(k,:) ) > 0.0_wp )  pmf2a_tra(k,:) = pmf2a_tra(k,:) / SUM( pmf2a_tra(k,:) )
+          IF ( SUM( pmf2b_tra(k,:) ) > 0.0_wp )  pmf2b_tra(k,:) = pmf2b_tra(k,:) / SUM( pmf2b_tra(k,:) )
+       ENDDO
+
+!
+!--    Initialize traffic number and mass concentrations
+       DO  i = nxlg, nxrg
+          DO  j = nysg, nyng
+             DO  k = nzb, nzt+1
+!
+                flag = MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 0 ) )
+!
+!--             Traffic number concentrations (same size distribution as non-traffic)
+                DO  ib = start_subrange_1a, end_subrange_1a
+                   aerosol_number_tra(ib)%conc(k,j,i) = pndist(k,ib) * flag
+                   aerosol_number_tra(ib)%init(k) = pndist(k,ib)
+                ENDDO
+                IF ( nreg > 1 )  THEN
+                   DO  ib = start_subrange_2a, end_subrange_2a
+                      aerosol_number_tra(ib)%conc(k,j,i) = MAX( 0.0_wp, pnf2a(k) ) * pndist(k,ib) * flag
+                      aerosol_number_tra(ib)%init(k) = MAX( 0.0_wp, nf2a ) * pndist(k,ib)
+                   ENDDO
+                   IF ( .NOT. no_insoluble )  THEN
+                      DO  ib = start_subrange_2b, end_subrange_2b
+                         IF ( pnf2a(k) < 1.0_wp )  THEN
+                            aerosol_number_tra(ib)%conc(k,j,i) = MAX( 0.0_wp, 1.0_wp - pnf2a(k) ) * &
+                                                                 pndist(k,ib) * flag
+                            aerosol_number_tra(ib)%init(k) = MAX( 0.0_wp, 1.0_wp - nf2a ) * pndist(k,ib)
+                         ENDIF
+                      ENDDO
+                   ENDIF
+                ENDIF
+!
+!--             Traffic mass concentrations - subrange 1 (SO4)
+                IF ( index_so4 > 0 )  THEN
+                   ss = ( index_so4 - 1 ) * nbins_aerosol + start_subrange_1a
+                   ee = ( index_so4 - 1 ) * nbins_aerosol + end_subrange_1a
+                   ib = start_subrange_1a
+                   DO  ic = ss, ee
+                      aerosol_mass_tra(ic)%conc(k,j,i) = MAX( 0.0_wp, 1.0_wp - pmfoc1a(k) ) *       &
+                                                         pndist(k,ib) * core(ib) * arhoh2so4 * flag
+                      aerosol_mass_tra(ic)%init(k) = MAX( 0.0_wp, 1.0_wp - pmfoc1a(k) ) *           &
+                                                     pndist(k,ib) * core(ib) * arhoh2so4
+                      ib = ib + 1
+                   ENDDO
+                ENDIF
+!
+!--             Traffic mass concentrations - subrange 1 (OC)
+                IF ( index_oc > 0 )  THEN
+                   ss = ( index_oc - 1 ) * nbins_aerosol + start_subrange_1a
+                   ee = ( index_oc - 1 ) * nbins_aerosol + end_subrange_1a
+                   ib = start_subrange_1a
+                   DO  ic = ss, ee
+                      aerosol_mass_tra(ic)%conc(k,j,i) = MAX( 0.0_wp, pmfoc1a(k) ) * pndist(k,ib) * &
+                                                         core(ib) * arhooc * flag
+                      aerosol_mass_tra(ic)%init(k) = MAX( 0.0_wp, pmfoc1a(k) ) * pndist(k,ib) *     &
+                                                     core(ib) * arhooc
+                      ib = ib + 1
+                   ENDDO
+                ENDIF
+             ENDDO  !< k
+          ENDDO  !< j
+       ENDDO  !< i
+
+!
+!--    Traffic mass concentrations - subrange 2 (using traffic mass fractions)
+       IF ( nreg > 1 )  THEN
+          IF ( index_so4 > 0 )  CALL set_aero_mass( index_so4, pmf2a_tra(:,1), pmf2b_tra(:,1),      &
+                                                    pnf2a, pndist, core, arhoh2so4, traffic=.TRUE. )
+          IF ( index_oc > 0 )  CALL set_aero_mass( index_oc, pmf2a_tra(:,2), pmf2b_tra(:,2),        &
+                                                    pnf2a, pndist, core, arhooc, traffic=.TRUE. )
+          IF ( index_bc > 0 )  CALL set_aero_mass( index_bc, pmf2a_tra(:,3), pmf2b_tra(:,3),        &
+                                                    pnf2a, pndist, core, arhobc, traffic=.TRUE. )
+          IF ( index_du > 0 )  CALL set_aero_mass( index_du, pmf2a_tra(:,4), pmf2b_tra(:,4),        &
+                                                    pnf2a, pndist, core, arhodu, traffic=.TRUE. )
+          IF ( index_ss > 0 )  CALL set_aero_mass( index_ss, pmf2a_tra(:,5), pmf2b_tra(:,5),        &
+                                                    pnf2a, pndist, core, arhoss, traffic=.TRUE. )
+          IF ( index_no > 0 )  CALL set_aero_mass( index_no, pmf2a_tra(:,6), pmf2b_tra(:,6),        &
+                                                    pnf2a, pndist, core, arhohno3, traffic=.TRUE. )
+          IF ( index_nh > 0 )  CALL set_aero_mass( index_nh, pmf2a_tra(:,7), pmf2b_tra(:,7),        &
+                                                    pnf2a, pndist, core, arhonh3, traffic=.TRUE. )
+          IF ( index_pb > 0 )  CALL set_aero_mass( index_pb, pmf2a_tra(:,8), pmf2b_tra(:,8),        &
+                                                    pnf2a, pndist, core, arhopb, traffic=.TRUE. )
+          IF ( index_hg > 0 )  CALL set_aero_mass( index_hg, pmf2a_tra(:,9), pmf2b_tra(:,9),        &
+                                                    pnf2a, pndist, core, arhohg, traffic=.TRUE. )
+          IF ( index_ni > 0 )  CALL set_aero_mass( index_ni, pmf2a_tra(:,10), pmf2b_tra(:,10),      &
+                                                    pnf2a, pndist, core, arhoni, traffic=.TRUE. )
+          IF ( index_cd > 0 )  CALL set_aero_mass( index_cd, pmf2a_tra(:,11), pmf2b_tra(:,11),      &
+                                                    pnf2a, pndist, core, arhocd, traffic=.TRUE. )
+          IF ( index_as > 0 )  CALL set_aero_mass( index_as, pmf2a_tra(:,12), pmf2b_tra(:,12),      &
+                                                    pnf2a, pndist, core, arhoas, traffic=.TRUE. )
+       ENDIF
+
+       DEALLOCATE( pmf2a_tra, pmf2b_tra )
+
+    ENDIF  ! read_restart_data_salsa
+    ENDIF  ! is_traffic
+
  END SUBROUTINE aerosol_init
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Create a lognormal size distribution and discretise to a sectional
 !> representation.
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE size_distribution( in_ntot, in_dpg, in_sigma, psd_sect )
 
     IMPLICIT NONE
@@ -2318,6 +2859,7 @@
     REAL(wp), DIMENSION(:), INTENT(in) ::  in_sigma  !< standard deviation
 
     REAL(wp), DIMENSION(:), INTENT(inout) ::  psd_sect  !< sectional size distribution
+
 
     DO  ib = start_subrange_1a, end_subrange_2b
        psd_sect(ib) = 0.0_wp
@@ -2351,14 +2893,15 @@
 
  END SUBROUTINE size_distribution
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Sets the mass concentrations to aerosol arrays in 2a and 2b.
 !>
 !> Tomi Raatikainen, FMI, 29.2.2016
-!------------------------------------------------------------------------------!
- SUBROUTINE set_aero_mass( ispec, pmf2a, pmf2b, pnf2a, pndist, pcore, prho )
+!--------------------------------------------------------------------------------------------------!
+ SUBROUTINE set_aero_mass( ispec, pmf2a, pmf2b, pnf2a, pndist, pcore, prho, traffic )
 
     IMPLICIT NONE
 
@@ -2373,6 +2916,9 @@
 
     INTEGER(iwp), INTENT(in) :: ispec  !< Aerosol species index
 
+    LOGICAL, OPTIONAL, INTENT(in) ::  traffic  !< if .TRUE., fill traffic arrays
+    LOGICAL ::  ltraffic
+
     REAL(wp) ::  flag   !< flag to mask topography grid points
 
     REAL(wp), INTENT(in) ::  prho !< Aerosol density
@@ -2384,7 +2930,10 @@
 
     REAL(wp), DIMENSION(0:nz+1,nbins_aerosol), INTENT(in) ::  pndist !< Aerosol size distribution
 
+
     prunmode = 1
+    ltraffic = .FALSE.
+    IF ( PRESENT( traffic ) )  ltraffic = traffic
 
     DO i = nxlg, nxrg
        DO j = nysg, nyng
@@ -2399,12 +2948,22 @@
              ib = start_subrange_2a
              DO ic = ss, ee
                 IF ( .NOT. read_restart_data_salsa )  THEN
-                   aerosol_mass(ic)%conc(k,j,i) = MAX( 0.0_wp, pmf2a(k) ) * pnf2a(k) * pndist(k,ib)&
-                                                  * pcore(ib) * prho * flag
+                   IF ( ltraffic )  THEN
+                      aerosol_mass_tra(ic)%conc(k,j,i) = MAX( 0.0_wp, pmf2a(k) ) * pnf2a(k) *       &
+                                                         pndist(k,ib) * pcore(ib) * prho * flag
+                   ELSE
+                      aerosol_mass(ic)%conc(k,j,i) = MAX( 0.0_wp, pmf2a(k) ) * pnf2a(k) * pndist(k,ib)&
+                                                     * pcore(ib) * prho * flag
+                   ENDIF
                 ENDIF
                 IF ( prunmode == 1 )  THEN
-                   aerosol_mass(ic)%init(k) = MAX( 0.0_wp, pmf2a(k) ) * pnf2a(k) * pndist(k,ib) *  &
-                                              pcore(ib) * prho
+                   IF ( ltraffic )  THEN
+                      aerosol_mass_tra(ic)%init(k) = MAX( 0.0_wp, pmf2a(k) ) * pnf2a(k) *           &
+                                                     pndist(k,ib) * pcore(ib) * prho
+                   ELSE
+                      aerosol_mass(ic)%init(k) = MAX( 0.0_wp, pmf2a(k) ) * pnf2a(k) * pndist(k,ib) * &
+                                                 pcore(ib) * prho
+                   ENDIF
                 ENDIF
                 ib = ib + 1
              ENDDO
@@ -2416,12 +2975,23 @@
                 ib = start_subrange_2a
                 DO ic = ss, ee
                    IF ( .NOT. read_restart_data_salsa )  THEN
-                      aerosol_mass(ic)%conc(k,j,i) = MAX( 0.0_wp, pmf2b(k) ) * ( 1.0_wp - pnf2a(k))&
-                                                     * pndist(k,ib) * pcore(ib) * prho * flag
+                      IF ( ltraffic )  THEN
+                         aerosol_mass_tra(ic)%conc(k,j,i) = MAX( 0.0_wp, pmf2b(k) ) *               &
+                                                            ( 1.0_wp - pnf2a(k) ) * pndist(k,ib) *   &
+                                                            pcore(ib) * prho * flag
+                      ELSE
+                         aerosol_mass(ic)%conc(k,j,i) = MAX( 0.0_wp, pmf2b(k) ) * ( 1.0_wp - pnf2a(k))&
+                                                        * pndist(k,ib) * pcore(ib) * prho * flag
+                      ENDIF
                    ENDIF
                    IF ( prunmode == 1 )  THEN
-                      aerosol_mass(ic)%init(k) = MAX( 0.0_wp, pmf2b(k) ) * ( 1.0_wp - pnf2a(k) ) * &
-                                                 pndist(k,ib) * pcore(ib) * prho
+                      IF ( ltraffic )  THEN
+                         aerosol_mass_tra(ic)%init(k) = MAX( 0.0_wp, pmf2b(k) ) * ( 1.0_wp - pnf2a(k) ) * &
+                                                        pndist(k,ib) * pcore(ib) * prho
+                      ELSE
+                         aerosol_mass(ic)%init(k) = MAX( 0.0_wp, pmf2b(k) ) * ( 1.0_wp - pnf2a(k) ) * &
+                                                    pndist(k,ib) * pcore(ib) * prho
+                      ENDIF
                    ENDIF
                    ib = ib + 1
                 ENDDO  ! c
@@ -2436,18 +3006,20 @@
 
  END SUBROUTINE set_aero_mass
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Initialise the matching between surface types in LSM and deposition models.
 !> Do the matching based on Zhang et al. (2001). Atmos. Environ. 35, 549-560
 !> (here referred as Z01).
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE init_deposition
 
     IMPLICIT NONE
 
     LOGICAL :: match_lsm  !< flag to initilise LSM surfaces (if false, initialise USM surfaces)
+
 
     IF ( depo_pcm_par == 'zhang2001' )  THEN
        depo_pcm_par_num = 1
@@ -2500,18 +3072,19 @@
           CASE ( 'deciduous_broadleaf' )
              depo_pcm_type_num = 4
           CASE DEFAULT
-             message_string = 'depo_pcm_type not set correctly.'
-             CALL message( 'salsa_mod: init_deposition', 'PA0613', 1, 2, 0, 6, 0 )
+             message_string = 'depo_pcm_type not set correctly'
+             CALL message( 'salsa_mod: init_deposition', 'SAL0025', 1, 2, 0, 6, 0 )
        END SELECT
     ENDIF
 
  END SUBROUTINE init_deposition
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Match the surface types in PALM and Zhang et al. 2001 deposition module
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE match_sm_zhang( surf, match_pav_green, match_veg_wall, match_wat_win, match_lsm )
 
     IMPLICIT NONE
@@ -2529,6 +3102,7 @@
 
     TYPE(surf_type), INTENT(in) :: surf  !< respective surface type
 
+
     DO  m = 1, surf%ns
        IF ( match_lsm )  THEN
 !
@@ -2537,8 +3111,8 @@
              veg_type_palm = surf%vegetation_type(m)
              SELECT CASE ( veg_type_palm )
                 CASE ( 0 )
-                   message_string = 'No vegetation type defined.'
-                   CALL message( 'salsa_mod: init_depo_surfaces', 'PA0614', 1, 2, 0, 6, 0 )
+                   message_string = 'no vegetation type defined'
+                   CALL message( 'salsa_mod: init_depo_surfaces', 'SAL0026', 1, 2, 0, 6, 0 )
                 CASE ( 1 )  ! bare soil
                    match_veg_wall(m) = 6  ! grass in Z01
                 CASE ( 2 )  ! crops, mixed farming
@@ -2582,8 +3156,8 @@
           IF ( surf%frac(m,ind_pav_green) > 0 )  THEN
              pav_type_palm = surf%pavement_type(m)
              IF ( pav_type_palm == 0 )  THEN  ! error
-                message_string = 'No pavement type defined.'
-                CALL message( 'salsa_mod: match_sm_zhang', 'PA0615', 1, 2, 0, 6, 0 )
+                message_string = 'no pavement type defined'
+                CALL message( 'salsa_mod: match_sm_zhang', 'SAL0027', 1, 2, 0, 6, 0 )
              ELSE
                 match_pav_green(m) = 15  ! urban in Z01
              ENDIF
@@ -2593,8 +3167,8 @@
           IF ( surf%frac(m,ind_wat_win) > 0 )  THEN
              wat_type_palm = surf%water_type(m)
              IF ( wat_type_palm == 0 )  THEN  ! error
-                message_string = 'No water type defined.'
-                CALL message( 'salsa_mod: match_sm_zhang', 'PA0616', 1, 2, 0, 6, 0 )
+                message_string = 'no water type defined'
+                CALL message( 'salsa_mod: match_sm_zhang', 'SAL0028', 1, 2, 0, 6, 0 )
              ELSEIF ( wat_type_palm == 3 )  THEN
                 match_wat_win(m) = 14  ! ocean in Z01
              ELSEIF ( wat_type_palm == 1  .OR.  wat_type_palm == 2 .OR.  wat_type_palm == 4        &
@@ -2624,11 +3198,12 @@
 
  END SUBROUTINE match_sm_zhang
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Swapping of timelevels
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_swap_timelevel( mod_count )
 
     IMPLICIT NONE
@@ -2640,20 +3215,27 @@
 
     INTEGER(iwp), INTENT(IN) ::  mod_count  !<
 
-    IF ( time_since_reference_point >= skip_time_do_salsa )  THEN
+    IF ( time_since_reference_point >= salsa_start_time )  THEN
 
        SELECT CASE ( mod_count )
 
           CASE ( 0 )
 
              DO  ib = 1, nbins_aerosol
-                aerosol_number(ib)%conc(nzb:nzt+1,nysg:nyng,nxlg:nxrg)   => nconc_1(:,:,:,ib)
-                aerosol_number(ib)%conc_p(nzb:nzt+1,nysg:nyng,nxlg:nxrg) => nconc_2(:,:,:,ib)
-
+                aerosol_number(ib)%conc(nzb:nzt+1,nysg:nyng,nxlg:nxrg)   => nconc_1(:,:,:,1,ib)
+                aerosol_number(ib)%conc_p(nzb:nzt+1,nysg:nyng,nxlg:nxrg) => nconc_2(:,:,:,1,ib)
+                IF ( is_traffic )  THEN
+                aerosol_number_tra(ib)%conc(nzb:nzt+1,nysg:nyng,nxlg:nxrg)   => nconc_1(:,:,:,2,ib)
+                aerosol_number_tra(ib)%conc_p(nzb:nzt+1,nysg:nyng,nxlg:nxrg) => nconc_2(:,:,:,2,ib)
+                ENDIF
                 DO  ic = 1, ncomponents_mass
                    icc = ( ic-1 ) * nbins_aerosol + ib
-                   aerosol_mass(icc)%conc(nzb:nzt+1,nysg:nyng,nxlg:nxrg)   => mconc_1(:,:,:,icc)
-                   aerosol_mass(icc)%conc_p(nzb:nzt+1,nysg:nyng,nxlg:nxrg) => mconc_2(:,:,:,icc)
+                   aerosol_mass(icc)%conc(nzb:nzt+1,nysg:nyng,nxlg:nxrg)   => mconc_1(:,:,:,1,icc)
+                   aerosol_mass(icc)%conc_p(nzb:nzt+1,nysg:nyng,nxlg:nxrg) => mconc_2(:,:,:,1,icc)
+                   IF ( is_traffic )  THEN
+                   aerosol_mass_tra(icc)%conc(nzb:nzt+1,nysg:nyng,nxlg:nxrg)   => mconc_1(:,:,:,2,icc)
+                   aerosol_mass_tra(icc)%conc_p(nzb:nzt+1,nysg:nyng,nxlg:nxrg) => mconc_2(:,:,:,2,icc)
+                   ENDIF
                 ENDDO
              ENDDO
 
@@ -2667,12 +3249,20 @@
           CASE ( 1 )
 
              DO  ib = 1, nbins_aerosol
-                aerosol_number(ib)%conc(nzb:nzt+1,nysg:nyng,nxlg:nxrg)   => nconc_2(:,:,:,ib)
-                aerosol_number(ib)%conc_p(nzb:nzt+1,nysg:nyng,nxlg:nxrg) => nconc_1(:,:,:,ib)
+                aerosol_number(ib)%conc(nzb:nzt+1,nysg:nyng,nxlg:nxrg)   => nconc_2(:,:,:,1,ib)
+                aerosol_number(ib)%conc_p(nzb:nzt+1,nysg:nyng,nxlg:nxrg) => nconc_1(:,:,:,1,ib)
+                IF ( is_traffic )  THEN
+                aerosol_number_tra(ib)%conc(nzb:nzt+1,nysg:nyng,nxlg:nxrg)   => nconc_2(:,:,:,2,ib)
+                aerosol_number_tra(ib)%conc_p(nzb:nzt+1,nysg:nyng,nxlg:nxrg) => nconc_1(:,:,:,2,ib)
+                ENDIF
                 DO  ic = 1, ncomponents_mass
                    icc = ( ic-1 ) * nbins_aerosol + ib
-                   aerosol_mass(icc)%conc(nzb:nzt+1,nysg:nyng,nxlg:nxrg)   => mconc_2(:,:,:,icc)
-                   aerosol_mass(icc)%conc_p(nzb:nzt+1,nysg:nyng,nxlg:nxrg) => mconc_1(:,:,:,icc)
+                   aerosol_mass(icc)%conc(nzb:nzt+1,nysg:nyng,nxlg:nxrg)   => mconc_2(:,:,:,1,icc)
+                   aerosol_mass(icc)%conc_p(nzb:nzt+1,nysg:nyng,nxlg:nxrg) => mconc_1(:,:,:,1,icc)
+                   IF ( is_traffic )  THEN
+                   aerosol_mass_tra(icc)%conc(nzb:nzt+1,nysg:nyng,nxlg:nxrg)   => mconc_2(:,:,:,2,icc)
+                   aerosol_mass_tra(icc)%conc_p(nzb:nzt+1,nysg:nyng,nxlg:nxrg) => mconc_1(:,:,:,2,icc)
+                   ENDIF
                 ENDDO
              ENDDO
 
@@ -2690,20 +3280,20 @@
  END SUBROUTINE salsa_swap_timelevel
 
 
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Read module-specific global restart data (Fortran binary format).
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_rrd_global_ftn( found )
 
-    USE control_parameters,                                                    &
-        ONLY: length, restart_string
-
+    USE control_parameters,                                                                        &
+        ONLY: length,                                                                              &
+              restart_string
 
     IMPLICIT NONE
 
-    LOGICAL, INTENT(OUT)  ::  found
+    LOGICAL, INTENT(OUT) ::  found
 
 
     found = .TRUE.
@@ -2740,11 +3330,11 @@
  END SUBROUTINE salsa_rrd_global_ftn
 
 
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Read module-specific global restart data (MPI-IO).
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_rrd_global_mpi
 
     IMPLICIT NONE
@@ -2754,7 +3344,7 @@
     INTEGER(iwp) ::  i  !< loop counter
 
 
-    DO  i = 1, 7
+    DO  i = 1, maxspec
        WRITE( counter, '(I1)' )  i
        CALL rrd_mpi_io( 'listspec_' // counter, listspec(i) )
     ENDDO
@@ -2769,16 +3359,17 @@
  END SUBROUTINE salsa_rrd_global_mpi
 
 
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Read module-specific local restart data arrays (Fortran binary format).
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_rrd_local_ftn( k, nxlf, nxlc, nxl_on_file, nxrf, nxrc, nxr_on_file, nynf, nync,  &
                                  nyn_on_file, nysf, nysc, nys_on_file, tmp_3d, found )
 
     USE control_parameters,                                                                        &
-        ONLY:  length, restart_string
+        ONLY:  length,                                                                             &
+               restart_string
 
     IMPLICIT NONE
 
@@ -2858,6 +3449,26 @@
                                                    tmp_3d(:,nysf-nbgp:nynf+nbgp,nxlf-nbgp:nxrf+nbgp)
           ENDDO
 
+       CASE ( 'mbins_av_tra' )
+          IF ( .NOT. ALLOCATED( mbins_av_tra ) )  THEN
+             ALLOCATE( mbins_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg,nbins_aerosol) )
+          ENDIF
+          DO  ib = 1, nbins_aerosol
+             IF ( k == 1 )  READ ( 13 ) tmp_3d
+             mbins_av_tra(:,nysc-nbgp:nync+nbgp,nxlc-nbgp:nxrc+nbgp,ib) =                          &
+                                                   tmp_3d(:,nysf-nbgp:nynf+nbgp,nxlf-nbgp:nxrf+nbgp)
+          ENDDO
+
+       CASE ( 'nbins_av_tra' )
+          IF ( .NOT. ALLOCATED( nbins_av_tra ) )  THEN
+             ALLOCATE( nbins_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg,nbins_aerosol) )
+          ENDIF
+          DO  ib = 1, nbins_aerosol
+             IF ( k == 1 )  READ ( 13 ) tmp_3d
+             nbins_av_tra(:,nysc-nbgp:nync+nbgp,nxlc-nbgp:nxrc+nbgp,ib) =                          &
+                                                   tmp_3d(:,nysf-nbgp:nynf+nbgp,nxlf-nbgp:nxrf+nbgp)
+          ENDDO
+
        CASE ( 'ntot_av' )
           IF ( .NOT. ALLOCATED( ntot_av ) )  ALLOCATE( ntot_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
           IF ( k == 1 )  READ ( 13 ) tmp_3d
@@ -2922,15 +3533,20 @@
  END SUBROUTINE salsa_rrd_local_ftn
 
 
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Read module-specific local restart data arrays (MPI-IO).
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_rrd_local_mpi
 
-    USE indices,                                                               &
-        ONLY:  nxlg, nxrg, nyng, nysg, nzb, nzt
+    USE indices,                                                                                   &
+        ONLY:  nxlg,                                                                               &
+               nxrg,                                                                               &
+               nyng,                                                                               &
+               nysg,                                                                               &
+               nzb,                                                                                &
+               nzt
 
     IMPLICIT NONE
 
@@ -2957,7 +3573,7 @@
     DO  ib = 1, nbins_aerosol
        WRITE( counter, '(I3.3)')  ib
        CALL rrd_mpi_io( 'aerosol_number_' // counter, tmp_3d )
-       aerosol_number(ic)%conc = tmp_3d
+       aerosol_number(ib)%conc = tmp_3d
     ENDDO
 
     IF ( .NOT. salsa_gases_from_chem )  THEN
@@ -3046,7 +3662,7 @@
           ALLOCATE( s_mass_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg,1:ncomponents_mass) )
        ENDIF
        DO  ic = 1, ncomponents_mass
-          WRITE( counter, '(I3.3)')  ib
+          WRITE( counter, '(I3.3)')  ic
           CALL rrd_mpi_io( 's_mass_av_' // counter, tmp_3d )
           s_mass_av(:,:,:,ic) = tmp_3d
        ENDDO
@@ -3065,11 +3681,11 @@
  END SUBROUTINE salsa_rrd_local_mpi
 
 
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Write module-specific global restart data.
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_wrd_global
 
     IMPLICIT NONE
@@ -3077,6 +3693,7 @@
     CHARACTER(LEN=1) ::  counter  !< counter used for output-variable names
 
     INTEGER(iwp) ::  i  !< loop counter
+
 
     IF ( TRIM( restart_data_format_output ) == 'fortran_binary' )  THEN
 
@@ -3098,12 +3715,15 @@
        CALL wrd_write_string( 'mass_fracs_b' )
        WRITE ( 14 )  mass_fracs_b
 
-       CALL wrd_write_string( 'reglim' )
-       WRITE ( 14 )  reglim
+        CALL wrd_write_string( 'mass_fracs_a_tra' )
+        WRITE ( 14 )  mass_fracs_a_tra
+
+        CALL wrd_write_string( 'mass_fracs_b_tra' )
+        WRITE ( 14 )  mass_fracs_b_tra
 
     ELSEIF ( restart_data_format_output(1:3) == 'mpi' )  THEN
 
-       DO  i = 1, 7
+       DO  i = 1, maxspec
           WRITE( counter, '(I1)' )  i
           CALL wrd_mpi_io( 'listspec_' // counter, listspec(i) )
        ENDDO
@@ -3113,21 +3733,22 @@
        CALL wrd_mpi_io( 'ncc', ncc )
        CALL wrd_mpi_io_global_array( 'mass_fracs_a', mass_fracs_a )
        CALL wrd_mpi_io_global_array( 'mass_fracs_b', mass_fracs_b )
-       CALL wrd_mpi_io_global_array( 'reglim', reglim )
+        CALL wrd_mpi_io_global_array( 'mass_fracs_a_tra', mass_fracs_a_tra )
+        CALL wrd_mpi_io_global_array( 'mass_fracs_b_tra', mass_fracs_b_tra )
 
     ENDIF
 
  END SUBROUTINE salsa_wrd_global
 
 
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> This routine writes the respective local restart data.
 !> Note that the following input variables in PARIN have to be equal between
 !> restart runs:
 !>    listspec, nbin, nf2a, ncc, mass_fracs_a, mass_fracs_b
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_wrd_local
 
     IMPLICIT NONE
@@ -3301,7 +3922,8 @@
 
  END SUBROUTINE salsa_wrd_local
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Performs necessary unit and dimension conversion between the host model and
@@ -3314,14 +3936,18 @@
 !> Juha Tonttila, FMI, 2014
 !> Jaakko Ahola, FMI, 2016
 !> Only aerosol processes included, Mona Kurppa, UHel, 2017
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_driver( i, j, prunmode )
 
     USE arrays_3d,                                                                                 &
-        ONLY: pt_p, q_p, u, v, w
+        ONLY:  pt_p,                                                                               &
+               q_p,                                                                                &
+               u,                                                                                  &
+               v,                                                                                  &
+               w
 
     USE plant_canopy_model_mod,                                                                    &
-        ONLY: lad_s
+        ONLY:  lad_s
 
     IMPLICIT NONE
 
@@ -3332,6 +3958,7 @@
     INTEGER(iwp) ::  k_wall  !< vertical index of topography top
     INTEGER(iwp) ::  k       !< loop index
     INTEGER(iwp) ::  nc_h2o  !< index of H2O in the prtcl index table
+    INTEGER(iwp) ::  pop     !< population index (1=non-traffic, 2=traffic)
     INTEGER(iwp) ::  ss      !< loop index
     INTEGER(iwp) ::  str     !< start index
     INTEGER(iwp) ::  vc      !< default index in prtcl
@@ -3349,6 +3976,11 @@
     REAL(wp) ::  zgnh3   !< NH3
     REAL(wp) ::  zgocnv  !< non-volatile OC
     REAL(wp) ::  zgocsv  !< semi-volatile OC
+    REAL(wp) ::  zgso4_tra   !< traffic SO4
+    REAL(wp) ::  zghno3_tra  !< traffic HNO3
+    REAL(wp) ::  zgnh3_tra   !< traffic NH3
+    REAL(wp) ::  zgocnv_tra  !< traffic non-volatile OC
+    REAL(wp) ::  zgocsv_tra  !< traffic semi-volatile OC
 
     REAL(wp), DIMENSION(nzb:nzt+1) ::  in_adn  !< air density (kg/m3)
     REAL(wp), DIMENSION(nzb:nzt+1) ::  in_cs   !< H2O sat. vapour conc.
@@ -3360,10 +3992,14 @@
     REAL(wp), DIMENSION(nzb:nzt+1) ::  ppm_to_nconc  !< Conversion factor from ppm to #/m3
 
     REAL(wp), DIMENSION(nzb:nzt+1,nbins_aerosol) ::  schmidt_num  !< particle Schmidt number
-    REAL(wp), DIMENSION(nzb:nzt+1,nbins_aerosol) ::  vd           !< particle fall seed (m/s)
+    REAL(wp), DIMENSION(nzb:nzt+1,nbins_aerosol) ::  vd           !< particle fall speed / sedimentation velocity per bin (m/s)
 
     TYPE(t_section), DIMENSION(nbins_aerosol) ::  lo_aero   !< additional variable for OpenMP
     TYPE(t_section), DIMENSION(nbins_aerosol) ::  aero_old  !< helper array
+
+    TYPE(salsa_variable), DIMENSION(:), POINTER ::  aero_num_ptr  !< pointer to current pop number arrays
+    TYPE(salsa_variable), DIMENSION(:), POINTER ::  aero_mass_ptr  !< pointer to current pop mass arrays
+
 
     aero_old(:)%numc = 0.0_wp
     in_lad           = 0.0_wp
@@ -3376,6 +4012,12 @@
     zghno3           = nclim
     zgnh3            = nclim
     zgocnv           = nclim
+    zgocsv           = nclim
+    zgso4_tra        = nclim
+    zghno3_tra       = nclim
+    zgnh3_tra        = nclim
+    zgocnv_tra       = nclim
+    zgocsv_tra       = nclim
     zgocsv           = nclim
 !
 !-- Aerosol number is always set, but mass can be uninitialized
@@ -3405,6 +4047,18 @@
 
     DO k = nzb+1, nzt
 !
+!--    Process both populations (pop=2 only if traffic tracking is enabled)
+       DO pop = 1, MERGE( npop, 1, is_traffic )
+!
+!--       Point to the right arrays for this population
+          IF ( pop == 1 )  THEN
+             aero_num_ptr  => aerosol_number
+             aero_mass_ptr => aerosol_mass
+          ELSE
+             aero_num_ptr  => aerosol_number_tra
+             aero_mass_ptr => aerosol_mass_tra
+          ENDIF
+!
 !--    Predetermine flag to mask topography
        flag = MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 0 ) )
 !
@@ -3429,7 +4083,7 @@
           endi = index_so4 * nbins_aerosol             ! end index
           ic = 1
           DO ss = str, endi
-             lo_aero(ic)%volc(vc) = aerosol_mass(ss)%conc(k,j,i) / arhoh2so4
+             lo_aero(ic)%volc(vc) = aero_mass_ptr(ss)%conc(k,j,i) / arhoh2so4
              ic = ic+1
           ENDDO
           aero_old(1:nbins_aerosol)%volc(vc) = lo_aero(1:nbins_aerosol)%volc(vc)
@@ -3442,7 +4096,7 @@
           endi = index_oc * nbins_aerosol
           ic = 1
           DO ss = str, endi
-             lo_aero(ic)%volc(vc) = aerosol_mass(ss)%conc(k,j,i) / arhooc
+             lo_aero(ic)%volc(vc) = aero_mass_ptr(ss)%conc(k,j,i) / arhooc
              ic = ic+1
           ENDDO
           aero_old(1:nbins_aerosol)%volc(vc) = lo_aero(1:nbins_aerosol)%volc(vc)
@@ -3455,7 +4109,7 @@
           endi = index_bc * nbins_aerosol
           ic = 1 + end_subrange_1a
           DO ss = str, endi
-             lo_aero(ic)%volc(vc) = aerosol_mass(ss)%conc(k,j,i) / arhobc
+             lo_aero(ic)%volc(vc) = aero_mass_ptr(ss)%conc(k,j,i) / arhobc
              ic = ic+1
           ENDDO
           aero_old(1:nbins_aerosol)%volc(vc) = lo_aero(1:nbins_aerosol)%volc(vc)
@@ -3468,7 +4122,7 @@
           endi = index_du * nbins_aerosol
           ic = 1 + end_subrange_1a
           DO ss = str, endi
-             lo_aero(ic)%volc(vc) = aerosol_mass(ss)%conc(k,j,i) / arhodu
+             lo_aero(ic)%volc(vc) = aero_mass_ptr(ss)%conc(k,j,i) / arhodu
              ic = ic+1
           ENDDO
           aero_old(1:nbins_aerosol)%volc(vc) = lo_aero(1:nbins_aerosol)%volc(vc)
@@ -3481,7 +4135,7 @@
           endi = index_ss * nbins_aerosol
           ic = 1 + end_subrange_1a
           DO ss = str, endi
-             lo_aero(ic)%volc(vc) = aerosol_mass(ss)%conc(k,j,i) / arhoss
+             lo_aero(ic)%volc(vc) = aero_mass_ptr(ss)%conc(k,j,i) / arhoss
              ic = ic+1
           ENDDO
           aero_old(1:nbins_aerosol)%volc(vc) = lo_aero(1:nbins_aerosol)%volc(vc)
@@ -3494,7 +4148,7 @@
           endi = index_no * nbins_aerosol
           ic = 1
           DO ss = str, endi
-             lo_aero(ic)%volc(vc) = aerosol_mass(ss)%conc(k,j,i) / arhohno3
+             lo_aero(ic)%volc(vc) = aero_mass_ptr(ss)%conc(k,j,i) / arhohno3
              ic = ic+1
           ENDDO
           aero_old(1:nbins_aerosol)%volc(vc) = lo_aero(1:nbins_aerosol)%volc(vc)
@@ -3507,7 +4161,72 @@
           endi = index_nh * nbins_aerosol
           ic = 1
           DO ss = str, endi
-             lo_aero(ic)%volc(vc) = aerosol_mass(ss)%conc(k,j,i) / arhonh3
+             lo_aero(ic)%volc(vc) = aero_mass_ptr(ss)%conc(k,j,i) / arhonh3
+             ic = ic+1
+          ENDDO
+          aero_old(1:nbins_aerosol)%volc(vc) = lo_aero(1:nbins_aerosol)%volc(vc)
+       ENDIF
+! MODIFICATION: Added volume concentration calculations for new trace metal species
+!--    Lead (PB)
+       IF ( index_pb > 0 )  THEN
+          vc = 8
+          str = ( index_pb-1 ) * nbins_aerosol + 1
+          endi = index_pb * nbins_aerosol
+          ic = 1
+          DO ss = str, endi
+             lo_aero(ic)%volc(vc) = aero_mass_ptr(ss)%conc(k,j,i) / arhopb
+             ic = ic+1
+          ENDDO
+          aero_old(1:nbins_aerosol)%volc(vc) = lo_aero(1:nbins_aerosol)%volc(vc)
+       ENDIF
+!
+!--    Mercury (HG)
+       IF ( index_hg > 0 )  THEN
+          vc = 9
+          str = ( index_hg-1 ) * nbins_aerosol + 1
+          endi = index_hg * nbins_aerosol
+          ic = 1
+          DO ss = str, endi
+             lo_aero(ic)%volc(vc) = aero_mass_ptr(ss)%conc(k,j,i) / arhohg
+             ic = ic+1
+          ENDDO
+          aero_old(1:nbins_aerosol)%volc(vc) = lo_aero(1:nbins_aerosol)%volc(vc)
+       ENDIF
+!
+!--    Nickel (NI)
+       IF ( index_ni > 0 )  THEN
+          vc = 10
+          str = ( index_ni-1 ) * nbins_aerosol + 1
+          endi = index_ni * nbins_aerosol
+          ic = 1
+          DO ss = str, endi
+             lo_aero(ic)%volc(vc) = aero_mass_ptr(ss)%conc(k,j,i) / arhoni
+             ic = ic+1
+          ENDDO
+          aero_old(1:nbins_aerosol)%volc(vc) = lo_aero(1:nbins_aerosol)%volc(vc)
+       ENDIF
+!
+!--    Cadmium (CD)
+       IF ( index_cd > 0 )  THEN
+          vc = 11
+          str = ( index_cd-1 ) * nbins_aerosol + 1
+          endi = index_cd * nbins_aerosol
+          ic = 1
+          DO ss = str, endi
+             lo_aero(ic)%volc(vc) = aero_mass_ptr(ss)%conc(k,j,i) / arhocd
+             ic = ic+1
+          ENDDO
+          aero_old(1:nbins_aerosol)%volc(vc) = lo_aero(1:nbins_aerosol)%volc(vc)
+       ENDIF
+!
+!--    Arsenic (AS)
+       IF ( index_as > 0 )  THEN
+          vc = 12
+          str = ( index_as-1 ) * nbins_aerosol + 1
+          endi = index_as * nbins_aerosol
+          ic = 1
+          DO ss = str, endi
+             lo_aero(ic)%volc(vc) = aero_mass_ptr(ss)%conc(k,j,i) / arhoas
              ic = ic+1
           ENDDO
           aero_old(1:nbins_aerosol)%volc(vc) = lo_aero(1:nbins_aerosol)%volc(vc)
@@ -3515,13 +4234,13 @@
 !
 !--    Water (always used)
        nc_h2o = get_index( prtcl,'H2O' )
-       vc = 8
+       vc = maxspec + 1 ! Water is after all chemical components
        str = ( nc_h2o-1 ) * nbins_aerosol + 1
        endi = nc_h2o * nbins_aerosol
        ic = 1
        IF ( advect_particle_water )  THEN
           DO ss = str, endi
-             lo_aero(ic)%volc(vc) = aerosol_mass(ss)%conc(k,j,i) / arhoh2o
+             lo_aero(ic)%volc(vc) = aero_mass_ptr(ss)%conc(k,j,i) / arhoh2o
              ic = ic+1
           ENDDO
        ELSE
@@ -3532,11 +4251,15 @@
 !--    Number concentrations (numc) and particle sizes
 !--    (dwet = wet diameter, core = dry volume)
        DO  ib = 1, nbins_aerosol
-          lo_aero(ib)%numc = aerosol_number(ib)%conc(k,j,i)
+          lo_aero(ib)%numc = aero_num_ptr(ib)%conc(k,j,i)
           aero_old(ib)%numc = lo_aero(ib)%numc
           IF ( lo_aero(ib)%numc > nclim )  THEN
-             lo_aero(ib)%dwet = ( SUM( lo_aero(ib)%volc(:) ) / lo_aero(ib)%numc / api6 )**0.33333333_wp
-             lo_aero(ib)%core = SUM( lo_aero(ib)%volc(1:7) ) / lo_aero(ib)%numc
+             IF ( SUM( lo_aero(ib)%volc(:) ) > 1.0E-30_wp )  THEN
+                lo_aero(ib)%dwet = ( SUM( lo_aero(ib)%volc(:) ) / lo_aero(ib)%numc / api6 )**0.33333333_wp
+             ELSE
+                lo_aero(ib)%dwet = lo_aero(ib)%dmid
+             ENDIF
+             lo_aero(ib)%core = MAX( SUM( lo_aero(ib)%volc(1:maxspec) ) / lo_aero(ib)%numc, 1.0E-30_wp )
           ELSE
              lo_aero(ib)%dwet = lo_aero(ib)%dmid
              lo_aero(ib)%core = api6 * ( lo_aero(ib)%dwet )**3
@@ -3546,25 +4269,41 @@
 !--    Calculate the ambient sizes of particles by equilibrating soluble fraction of particles with
 !--    water using the ZSR method.
        in_rh = in_cw(k) / in_cs(k)
-       IF ( prunmode==1  .OR.  .NOT. advect_particle_water )  THEN
-          CALL equilibration( in_rh, in_t(k), lo_aero, .TRUE. )
+       IF ( prunmode==1  .OR.  advect_particle_water )  THEN
+          CALL equilibration( in_rh, in_t(k), lo_aero, prunmode==1 )
        ENDIF
 !
 !--    Gaseous tracer concentrations in #/m3
        IF ( salsa_gases_from_chem )  THEN
 !
 !--       Convert concentrations in ppm to #/m3
-          zgso4  = chem_species(gas_index_chem(1))%conc(k,j,i) * ppm_to_nconc(k)
-          zghno3 = chem_species(gas_index_chem(2))%conc(k,j,i) * ppm_to_nconc(k)
-          zgnh3  = chem_species(gas_index_chem(3))%conc(k,j,i) * ppm_to_nconc(k)
-          zgocnv = chem_species(gas_index_chem(4))%conc(k,j,i) * ppm_to_nconc(k)
-          zgocsv = chem_species(gas_index_chem(5))%conc(k,j,i) * ppm_to_nconc(k)
+          IF ( pop == 1 )  THEN
+             zgso4  = chem_species(gas_index_chem(1))%conc(k,j,i) * ppm_to_nconc(k)
+             zghno3 = chem_species(gas_index_chem(2))%conc(k,j,i) * ppm_to_nconc(k)
+             zgnh3  = chem_species(gas_index_chem(3))%conc(k,j,i) * ppm_to_nconc(k)
+             zgocnv = chem_species(gas_index_chem(4))%conc(k,j,i) * ppm_to_nconc(k)
+             zgocsv = chem_species(gas_index_chem(5))%conc(k,j,i) * ppm_to_nconc(k)
+          ELSE
+             zgso4  = chem_species(gas_index_chem(6))%conc(k,j,i) * ppm_to_nconc(k)
+             zghno3 = chem_species(gas_index_chem(7))%conc(k,j,i) * ppm_to_nconc(k)
+             zgnh3  = chem_species(gas_index_chem(8))%conc(k,j,i) * ppm_to_nconc(k)
+             zgocnv = chem_species(gas_index_chem(9))%conc(k,j,i) * ppm_to_nconc(k)
+             zgocsv = chem_species(gas_index_chem(10))%conc(k,j,i) * ppm_to_nconc(k)
+          ENDIF
        ELSE
-          zgso4  = salsa_gas(1)%conc(k,j,i)
-          zghno3 = salsa_gas(2)%conc(k,j,i)
-          zgnh3  = salsa_gas(3)%conc(k,j,i)
-          zgocnv = salsa_gas(4)%conc(k,j,i)
-          zgocsv = salsa_gas(5)%conc(k,j,i)
+          IF ( pop == 1 )  THEN
+             zgso4  = salsa_gas(1)%conc(k,j,i)
+             zghno3 = salsa_gas(2)%conc(k,j,i)
+             zgnh3  = salsa_gas(3)%conc(k,j,i)
+             zgocnv = salsa_gas(4)%conc(k,j,i)
+             zgocsv = salsa_gas(5)%conc(k,j,i)
+          ELSE
+             zgso4  = salsa_gas(6)%conc(k,j,i)
+             zghno3 = salsa_gas(7)%conc(k,j,i)
+             zgnh3  = salsa_gas(8)%conc(k,j,i)
+             zgocnv = salsa_gas(9)%conc(k,j,i)
+             zgocsv = salsa_gas(10)%conc(k,j,i)
+          ENDIF
        ENDIF
 !
 !--    Calculate aerosol processes:
@@ -3593,11 +4332,11 @@
        ENDIF
 !--    *********************************************************************************************
 
-       IF ( lsdepo ) sedim_vd(k,j,i,:) = vd(k,:)
+       IF ( lsdepo ) sedim_vd(k,:) = vd(k,:)
 !
 !--    Calculate changes in concentrations
        DO ib = 1, nbins_aerosol
-          aerosol_number(ib)%conc(k,j,i) = aerosol_number(ib)%conc(k,j,i) + ( lo_aero(ib)%numc -   &
+          aero_num_ptr(ib)%conc(k,j,i) = aero_num_ptr(ib)%conc(k,j,i) + ( lo_aero(ib)%numc -   &
                                            aero_old(ib)%numc ) * flag
        ENDDO
 
@@ -3607,7 +4346,7 @@
           endi = index_so4 * nbins_aerosol
           ic = 1
           DO ss = str, endi
-             aerosol_mass(ss)%conc(k,j,i) = aerosol_mass(ss)%conc(k,j,i) + ( lo_aero(ic)%volc(vc) -&
+             aero_mass_ptr(ss)%conc(k,j,i) = aero_mass_ptr(ss)%conc(k,j,i) + ( lo_aero(ic)%volc(vc) -&
                                             aero_old(ic)%volc(vc) ) * arhoh2so4 * flag
              ic = ic+1
           ENDDO
@@ -3619,7 +4358,7 @@
           endi = index_oc * nbins_aerosol
           ic = 1
           DO ss = str, endi
-             aerosol_mass(ss)%conc(k,j,i) = aerosol_mass(ss)%conc(k,j,i) + ( lo_aero(ic)%volc(vc) -&
+             aero_mass_ptr(ss)%conc(k,j,i) = aero_mass_ptr(ss)%conc(k,j,i) + ( lo_aero(ic)%volc(vc) -&
                                             aero_old(ic)%volc(vc) ) * arhooc * flag
              ic = ic+1
           ENDDO
@@ -3631,7 +4370,7 @@
           endi = index_bc * nbins_aerosol
           ic = 1 + end_subrange_1a
           DO ss = str, endi
-             aerosol_mass(ss)%conc(k,j,i) = aerosol_mass(ss)%conc(k,j,i) + ( lo_aero(ic)%volc(vc) -&
+             aero_mass_ptr(ss)%conc(k,j,i) = aero_mass_ptr(ss)%conc(k,j,i) + ( lo_aero(ic)%volc(vc) -&
                                             aero_old(ic)%volc(vc) ) * arhobc * flag
              ic = ic+1
           ENDDO
@@ -3643,7 +4382,7 @@
           endi = index_du * nbins_aerosol
           ic = 1 + end_subrange_1a
           DO ss = str, endi
-             aerosol_mass(ss)%conc(k,j,i) = aerosol_mass(ss)%conc(k,j,i) + ( lo_aero(ic)%volc(vc) -&
+             aero_mass_ptr(ss)%conc(k,j,i) = aero_mass_ptr(ss)%conc(k,j,i) + ( lo_aero(ic)%volc(vc) -&
                                             aero_old(ic)%volc(vc) ) * arhodu * flag
              ic = ic+1
           ENDDO
@@ -3655,7 +4394,7 @@
           endi = index_ss * nbins_aerosol
           ic = 1 + end_subrange_1a
           DO ss = str, endi
-             aerosol_mass(ss)%conc(k,j,i) = aerosol_mass(ss)%conc(k,j,i) + ( lo_aero(ic)%volc(vc) -&
+             aero_mass_ptr(ss)%conc(k,j,i) = aero_mass_ptr(ss)%conc(k,j,i) + ( lo_aero(ic)%volc(vc) -&
                                             aero_old(ic)%volc(vc) ) * arhoss * flag
              ic = ic+1
           ENDDO
@@ -3667,7 +4406,7 @@
           endi = index_no * nbins_aerosol
           ic = 1
           DO ss = str, endi
-             aerosol_mass(ss)%conc(k,j,i) = aerosol_mass(ss)%conc(k,j,i) + ( lo_aero(ic)%volc(vc) -&
+             aero_mass_ptr(ss)%conc(k,j,i) = aero_mass_ptr(ss)%conc(k,j,i) + ( lo_aero(ic)%volc(vc) -&
                                             aero_old(ic)%volc(vc) ) * arhohno3 * flag
              ic = ic+1
           ENDDO
@@ -3679,42 +4418,103 @@
           endi = index_nh * nbins_aerosol
           ic = 1
           DO ss = str, endi
-             aerosol_mass(ss)%conc(k,j,i) = aerosol_mass(ss)%conc(k,j,i) + ( lo_aero(ic)%volc(vc) -&
+             aero_mass_ptr(ss)%conc(k,j,i) = aero_mass_ptr(ss)%conc(k,j,i) + ( lo_aero(ic)%volc(vc) -&
                                             aero_old(ic)%volc(vc) ) * arhonh3 * flag
+             ic = ic+1
+          ENDDO
+       ENDIF
+! MODIFICATION: Added mass concentration updates for new trace metal species
+       IF ( index_pb > 0 )  THEN
+          vc = 8
+          str = ( index_pb-1 ) * nbins_aerosol + 1
+          endi = index_pb * nbins_aerosol
+          ic = 1
+          DO ss = str, endi
+             aero_mass_ptr(ss)%conc(k,j,i) = aero_mass_ptr(ss)%conc(k,j,i) + ( lo_aero(ic)%volc(vc) -&
+                                            aero_old(ic)%volc(vc) ) * arhopb * flag
+             ic = ic+1
+          ENDDO
+       ENDIF
+
+       IF ( index_hg > 0 )  THEN
+          vc = 9
+          str = ( index_hg-1 ) * nbins_aerosol + 1
+          endi = index_hg * nbins_aerosol
+          ic = 1
+          DO ss = str, endi
+             aero_mass_ptr(ss)%conc(k,j,i) = aero_mass_ptr(ss)%conc(k,j,i) + ( lo_aero(ic)%volc(vc) -&
+                                            aero_old(ic)%volc(vc) ) * arhohg * flag
+             ic = ic+1
+          ENDDO
+       ENDIF
+
+       IF ( index_ni > 0 )  THEN
+          vc = 10
+          str = ( index_ni-1 ) * nbins_aerosol + 1
+          endi = index_ni * nbins_aerosol
+          ic = 1
+          DO ss = str, endi
+             aero_mass_ptr(ss)%conc(k,j,i) = aero_mass_ptr(ss)%conc(k,j,i) + ( lo_aero(ic)%volc(vc) -&
+                                            aero_old(ic)%volc(vc) ) * arhoni * flag
+             ic = ic+1
+          ENDDO
+       ENDIF
+
+       IF ( index_cd > 0 )  THEN
+          vc = 11
+          str = ( index_cd-1 ) * nbins_aerosol + 1
+          endi = index_cd * nbins_aerosol
+          ic = 1
+          DO ss = str, endi
+             aero_mass_ptr(ss)%conc(k,j,i) = aero_mass_ptr(ss)%conc(k,j,i) + ( lo_aero(ic)%volc(vc) -&
+                                            aero_old(ic)%volc(vc) ) * arhocd * flag
+             ic = ic+1
+          ENDDO
+       ENDIF
+
+       IF ( index_as > 0 )  THEN
+          vc = 12
+          str = ( index_as-1 ) * nbins_aerosol + 1
+          endi = index_as * nbins_aerosol
+          ic = 1
+          DO ss = str, endi
+             aero_mass_ptr(ss)%conc(k,j,i) = aero_mass_ptr(ss)%conc(k,j,i) + ( lo_aero(ic)%volc(vc) -&
+                                            aero_old(ic)%volc(vc) ) * arhoas * flag
              ic = ic+1
           ENDDO
        ENDIF
 
        IF ( advect_particle_water )  THEN
           nc_h2o = get_index( prtcl,'H2O' )
-          vc = 8
+          vc = maxspec + 1
           str = ( nc_h2o-1 ) * nbins_aerosol + 1
           endi = nc_h2o * nbins_aerosol
           ic = 1
           DO ss = str, endi
-             aerosol_mass(ss)%conc(k,j,i) = aerosol_mass(ss)%conc(k,j,i) + ( lo_aero(ic)%volc(vc) -&
+             aero_mass_ptr(ss)%conc(k,j,i) = aero_mass_ptr(ss)%conc(k,j,i) + ( lo_aero(ic)%volc(vc) -&
                                             aero_old(ic)%volc(vc) ) * arhoh2o * flag
              ic = ic+1
           ENDDO
           IF ( prunmode == 1 )  THEN
              nc_h2o = get_index( prtcl,'H2O' )
-             vc = 8
+             vc = maxspec + 1
              str = ( nc_h2o-1 ) * nbins_aerosol + 1
              endi = nc_h2o * nbins_aerosol
              ic = 1
              DO ss = str, endi
-                aerosol_mass(ss)%init(k) = MAX( aerosol_mass(ss)%init(k), ( lo_aero(ic)%volc(vc) - &
+                aero_mass_ptr(ss)%init(k) = MAX( aero_mass_ptr(ss)%init(k), ( lo_aero(ic)%volc(vc) - &
                                                 aero_old(ic)%volc(vc) ) * arhoh2o )
                 IF ( k == nzb+1 )  THEN
-                   aerosol_mass(ss)%init(k-1) = aerosol_mass(ss)%init(k)
+                   aero_mass_ptr(ss)%init(k-1) = aero_mass_ptr(ss)%init(k)
                 ELSEIF ( k == nzt  )  THEN
-                   aerosol_mass(ss)%init(k+1) = aerosol_mass(ss)%init(k)
-                   aerosol_mass(ss)%conc(k+1,j,i) = aerosol_mass(ss)%init(k)
+                   aero_mass_ptr(ss)%init(k+1) = aero_mass_ptr(ss)%init(k)
+                   aero_mass_ptr(ss)%conc(k+1,j,i) = aero_mass_ptr(ss)%init(k)
                 ENDIF
                 ic = ic+1
              ENDDO
           ENDIF
        ENDIF
+       ENDDO  ! pop loop (end of aerosol processing for both populations)
 !
 !--    Condensation of precursor gases
        IF ( lscndgas )  THEN
@@ -3744,6 +4544,35 @@
              ig = gas_index_chem(5)
              chem_species(ig)%conc(k,j,i) = chem_species(ig)%conc(k,j,i) + ( zgocsv /              &
                                             ppm_to_nconc(k) - chem_species(ig)%conc(k,j,i) ) * flag
+!
+!--          Traffic gas tendencies only if traffic tracking is enabled
+             IF ( is_traffic )  THEN
+!
+!--          H2SO4_tra
+             ig = gas_index_chem(6)
+             chem_species(ig)%conc(k,j,i) = chem_species(ig)%conc(k,j,i) + ( zgso4_tra /            &
+                                            ppm_to_nconc(k) - chem_species(ig)%conc(k,j,i) ) * flag
+!
+!--          HNO3_tra
+             ig = gas_index_chem(7)
+             chem_species(ig)%conc(k,j,i) = chem_species(ig)%conc(k,j,i) + ( zghno3_tra /           &
+                                            ppm_to_nconc(k) - chem_species(ig)%conc(k,j,i) ) * flag
+!
+!--          NH3_tra
+             ig = gas_index_chem(8)
+             chem_species(ig)%conc(k,j,i) = chem_species(ig)%conc(k,j,i) + ( zgnh3_tra /            &
+                                            ppm_to_nconc(k) - chem_species(ig)%conc(k,j,i) ) * flag
+!
+!--          OCNV_tra
+             ig = gas_index_chem(9)
+             chem_species(ig)%conc(k,j,i) = chem_species(ig)%conc(k,j,i) + ( zgocnv_tra /           &
+                                            ppm_to_nconc(k) - chem_species(ig)%conc(k,j,i) ) * flag
+!
+!--          OCSV_tra
+             ig = gas_index_chem(10)
+             chem_species(ig)%conc(k,j,i) = chem_species(ig)%conc(k,j,i) + ( zgocsv_tra /           &
+                                            ppm_to_nconc(k) - chem_species(ig)%conc(k,j,i) ) * flag
+             ENDIF
 
           ELSE
 !
@@ -3766,6 +4595,30 @@
 !--          semi-volatile OC
              salsa_gas(5)%conc(k,j,i) = salsa_gas(5)%conc(k,j,i) + ( zgocsv -                      &
                                         salsa_gas(5)%conc(k,j,i) ) * flag
+!
+!--          Traffic gas tendencies only if traffic tracking is enabled
+             IF ( is_traffic )  THEN
+!
+!--          H2SO4_tra
+             salsa_gas(6)%conc(k,j,i) = salsa_gas(6)%conc(k,j,i) + ( zgso4_tra -                   &
+                                        salsa_gas(6)%conc(k,j,i) ) * flag
+!
+!--          HNO3_tra
+             salsa_gas(7)%conc(k,j,i) = salsa_gas(7)%conc(k,j,i) + ( zghno3_tra -                  &
+                                        salsa_gas(7)%conc(k,j,i) ) * flag
+!
+!--          NH3_tra
+             salsa_gas(8)%conc(k,j,i) = salsa_gas(8)%conc(k,j,i) + ( zgnh3_tra -                   &
+                                        salsa_gas(8)%conc(k,j,i) ) * flag
+!
+!--          OCNV_tra
+             salsa_gas(9)%conc(k,j,i) = salsa_gas(9)%conc(k,j,i) + ( zgocnv_tra -                  &
+                                        salsa_gas(9)%conc(k,j,i) ) * flag
+!
+!--          OCSV_tra
+             salsa_gas(10)%conc(k,j,i) = salsa_gas(10)%conc(k,j,i) + ( zgocsv_tra -                &
+                                        salsa_gas(10)%conc(k,j,i) ) * flag
+             ENDIF
           ENDIF
        ENDIF
 !
@@ -3801,18 +4654,20 @@
 
  END SUBROUTINE salsa_driver
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Set logical switches according to the salsa_parameters options.
 !> Juha Tonttila, FMI, 2014
 !> Only aerosol processes included, Mona Kurppa, UHel, 2017
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE set_salsa_runtime( prunmode )
 
     IMPLICIT NONE
 
     INTEGER(iwp), INTENT(in) ::  prunmode
+
 
     SELECT CASE(prunmode)
 
@@ -3844,10 +4699,10 @@
           lsdistupdate = nldistupdate
     END SELECT
 
-
  END SUBROUTINE set_salsa_runtime
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Calculates the absolute temperature (using hydrostatic pressure), saturation
@@ -3859,14 +4714,19 @@
 !
 !> Juha Tonttila, FMI, 2014 (original SALSAthrm)
 !> Mona Kurppa, UHel, 2017 (adjustment for PALM and only aerosol processes)
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_thrm_ij( i, j, p_ij, temp_ij, cw_ij, cs_ij, adn_ij )
 
     USE arrays_3d,                                                                                 &
-        ONLY: pt, q, zu
+        ONLY:  pt,                                                                                 &
+               q,                                                                                  &
+               zu
 
     USE basic_constants_and_equations_mod,                                                         &
-        ONLY:  barometric_formula, exner_function, ideal_gas_law_rho, magnus
+        ONLY:  barometric_formula,                                                                 &
+               exner_function,                                                                     &
+               ideal_gas_law_rho,                                                                  &
+               magnus
 
     IMPLICIT NONE
 
@@ -3883,6 +4743,8 @@
 
     REAL(wp), DIMENSION(:), INTENT(inout), OPTIONAL ::  cw_ij  !< water vapour concentration (kg/m3)
     REAL(wp), DIMENSION(:), INTENT(inout), OPTIONAL ::  cs_ij  !< saturation water vap. conc.(kg/m3)
+
+
 !
 !-- Pressure p_ijk (Pa) = hydrostatic pressure
     t_surface = pt_surface * exner_function( surface_pressure * 100.0_wp )
@@ -3908,7 +4770,8 @@
 
  END SUBROUTINE salsa_thrm_ij
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Calculates ambient sizes of particles by equilibrating soluble fraction of
@@ -3943,7 +4806,7 @@
 !> it could be mixed with e.g. sulphate)?
 !> fxm: crashes if no sulphate or sea salt
 !> fxm: do we really need to consider Kelvin effect for subrange 2
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE equilibration( prh, ptemp, paero, init )
 
     IMPLICIT NONE
@@ -3958,7 +4821,7 @@
     REAL(wp) ::  zcore    !< Volume of dry particle
     REAL(wp) ::  zdold    !< Old diameter
     REAL(wp) ::  zdwet    !< Wet diameter or mean droplet diameter
-    REAL(wp) ::  zke      !< Kelvin term in the Köhler equation
+    REAL(wp) ::  zke      !< Kelvin term in the K�hler equation
     REAL(wp) ::  zlwc     !< liquid water content [kg/m3-air]
     REAL(wp) ::  zrh      !< Relative humidity
 
@@ -3969,6 +4832,7 @@
     REAL(wp), INTENT(in) ::  ptemp  !< temperature (K)
 
     TYPE(t_section), DIMENSION(nbins_aerosol), INTENT(inout) ::  paero  !< aerosol properties
+
 
     zaw       = 0.0_wp
     zlwc      = 0.0_wp
@@ -4021,8 +4885,9 @@
                     ( paero(ib)%volc(6) * ( arhohno3/amhno3 ) ) / zbinmol(6)
 !
 !--          Particle wet diameter (m)
-             zdwet = ( zlwc / paero(ib)%numc / arhoh2o / api6 + ( SUM( zvpart(6:7) ) / api6 ) +    &
-                       zcore / api6 )**0.33333333_wp
+             zdwet = ( MAX( zlwc / paero(ib)%numc / arhoh2o / api6 + ( SUM( zvpart(6:7) ) / api6 ) + &
+                       zcore / api6, 1.0E-30_wp ) )**0.33333333_wp
+             zdwet = MAX( zdwet, paero(ib)%dmid * 0.5_wp )
 !
 !--          Kelvin effect (Eq. 10.85 in in Seinfeld and Pandis (2006)). Avoid
 !--          overflow.
@@ -4030,14 +4895,14 @@
 
              counti = counti + 1
              IF ( counti > 1000 )  THEN
-                message_string = 'Subrange 1: no convergence!'
-                CALL message( 'salsa_mod: equilibration', 'PA0617', 1, 2, 0, 6, 0 )
+                message_string = 'subrange 1: no convergence'
+                CALL message( 'salsa_mod: equilibration', 'SAL0029', 1, 2, 0, 6, 0 )
              ENDIF
           ENDDO
 !
 !--       Instead of lwc, use the volume concentration of water from now on
 !--       (easy to convert...)
-          paero(ib)%volc(8) = zlwc / arhoh2o
+          paero(ib)%volc(maxspec+1) = zlwc / arhoh2o
 !
 !--       If this is initialization, update the core and wet diameter
           IF ( init )  THEN
@@ -4073,7 +4938,7 @@
 !
 !--          Volume in one particle [fxm]
              zvpart = 0.0_wp
-             zvpart(1:7) = paero(ib)%volc(1:7) / paero(ib)%numc
+             zvpart(1:maxspec) = paero(ib)%volc(1:maxspec) / paero(ib)%numc
 !
 !--          Total volume and wet diameter of one dry particle [fxm]
              zcore = SUM( zvpart(1:5) )
@@ -4107,21 +4972,22 @@
                        ( paero(ib)%volc(5) * ( arhoss / amss ) ) / zbinmol(5)
 
 !--             Particle wet radius (m)
-                zdwet = ( zlwc / paero(ib)%numc / arhoh2o / api6 + ( SUM( zvpart(6:7) ) / api6 )  + &
-                           zcore / api6 )**0.33333333_wp
+                zdwet = ( MAX( zlwc / paero(ib)%numc / arhoh2o / api6 + ( SUM( zvpart(6:7) ) / api6 ) + &
+                           zcore / api6, 1.0E-30_wp ) )**0.33333333_wp
+                zdwet = MAX( zdwet, paero(ib)%dmid * 0.5_wp )
 !
 !--             Kelvin effect (Eq. 10.85 in Seinfeld and Pandis (2006))
                 zke = EXP( MIN( 50.0_wp, 4.0_wp * surfw0 * amvh2so4 / ( abo * zdwet * ptemp ) ) )
 
                 counti = counti + 1
                 IF ( counti > 1000 )  THEN
-                   message_string = 'Subrange 2: no convergence!'
-                CALL message( 'salsa_mod: equilibration', 'PA0618', 1, 2, 0, 6, 0 )
+                   message_string = 'subrange 2: no convergence'
+                CALL message( 'salsa_mod: equilibration', 'SAL0030', 1, 2, 0, 6, 0 )
                 ENDIF
              ENDDO
 !
 !--          Liquid water content; instead of LWC use the volume concentration
-             paero(ib)%volc(8) = zlwc / arhoh2o
+             paero(ib)%volc(maxspec+1) = zlwc / arhoh2o
              paero(ib)%dwet    = zdwet
              paero(ib)%core    = zcore
 
@@ -4136,7 +5002,8 @@
 
  END SUBROUTINE equilibration
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 !> Description:
 !> ------------
 !> Calculation of the settling velocity vc (m/s) per aerosol size bin and
@@ -4157,11 +5024,10 @@
 !> Rewritten to PALM by Mona Kurppa (UH), 2017.
 !
 !> Call for grid point i,j,k
-!------------------------------------------------------------------------------!
-
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE deposition( paero, tk, adn, mag_u, lad, kvis, schmidt_num, vc )
 
-    USE plant_canopy_model_mod,                                                &
+    USE plant_canopy_model_mod,                                                                    &
         ONLY:  canopy_drag_coeff
 
     IMPLICIT NONE
@@ -4203,6 +5069,8 @@
                                                   !< an aerosol particle (m/s)
 
     TYPE(t_section), DIMENSION(nbins_aerosol), INTENT(inout) ::  paero  !< aerosol properties
+
+
 !
 !-- Initialise
     depo  = 0.0_wp
@@ -4283,12 +5151,12 @@
 
  END SUBROUTINE deposition
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Calculate deposition velocity (m/s) based on Zhan et al. (2001, case 1).
-!------------------------------------------------------------------------------!
-
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE depo_vel_Z01( vc, ustar, schmidt_num, diameter, alpha, gamma, par_a, depo )
 
     IMPLICIT NONE
@@ -4306,6 +5174,7 @@
     REAL(wp), INTENT(in) ::  vc           !< terminal velocity (m/s)
 
     REAL(wp), INTENT(inout)  ::  depo     !< deposition efficiency (m/s)
+
 
     IF ( par_a > 0.0_wp )  THEN
 !
@@ -4328,12 +5197,12 @@
 
  END SUBROUTINE depo_vel_Z01
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Calculate deposition velocity (m/s) based on Petroff & Zhang (2010, case 2).
-!------------------------------------------------------------------------------!
-
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE depo_vel_P10( vc, mag_u, ustar, kvis_a, schmidt_num, diameter, par_l, c_brownian_diff, &
                           c_interception, c_impaction, beta_im, c_turb_impaction, depo )
 
@@ -4360,6 +5229,7 @@
     REAL(wp), INTENT(in) ::  vc           !< terminal velocity (m/s)
 
     REAL(wp), INTENT(inout)  ::  depo     !< deposition efficiency (m/s)
+
 
     IF ( par_l > 0.0_wp )  THEN
 !
@@ -4402,18 +5272,19 @@
 
  END SUBROUTINE depo_vel_P10
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Calculate the dry deposition on horizontal and vertical surfaces. Implement
 !> as a surface flux.
 !> @todo aerodynamic resistance ignored for now (not important for
 !        high-resolution simulations)
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE depo_surf( i, j, surf, vc, schmidt_num, kvis, mag_u, norm, match_array )
 
     USE arrays_3d,                                                                                 &
-        ONLY: rho_air_zw
+        ONLY:  rho_air_zw
 
     IMPLICIT NONE
 
@@ -4460,6 +5331,8 @@
     TYPE(match_surface), INTENT(in), OPTIONAL ::  match_array  !< match the deposition module and
                                                                !< LSM/USM surfaces
     TYPE(surf_type), INTENT(inout) :: surf                     !< respective surface type
+
+
 !
 !-- Initialise
     depo     = 0.0_wp
@@ -4594,12 +5467,26 @@
 !
 !--          Calculate changes in surface fluxes due to dry deposition
              IF ( include_emission )  THEN
-                surf%answs(m,ib) = aerosol_number(ib)%source(j,i) - MAX( 0.0_wp,                   &
-                                   depo_sum(ib) * norm_fac * aerosol_number(ib)%conc(k,j,i) )
+                IF ( is_traffic )  THEN
+                   surf%answs(m,ib) = ( aerosol_number(ib)%source(j,i) +                            &
+                                        aerosol_number_tra(ib)%source(j,i) ) -                       &
+                                        MAX( 0.0_wp, depo_sum(ib) * norm_fac *                       &
+                                             aerosol_number(ib)%conc(k,j,i) )
+                ELSE
+                   surf%answs(m,ib) = aerosol_number(ib)%source(j,i) - MAX( 0.0_wp,                 &
+                                      depo_sum(ib) * norm_fac * aerosol_number(ib)%conc(k,j,i) )
+                ENDIF
                 DO  ic = 1, ncomponents_mass
                    icc = ( ic - 1 ) * nbins_aerosol + ib
-                   surf%amsws(m,icc) = aerosol_mass(icc)%source(j,i) - MAX( 0.0_wp,                &
-                                       depo_sum(ib) *  norm_fac * aerosol_mass(icc)%conc(k,j,i) )
+                   IF ( is_traffic )  THEN
+                      surf%amsws(m,icc) = ( aerosol_mass(icc)%source(j,i) +                          &
+                                            aerosol_mass_tra(icc)%source(j,i) ) -                     &
+                                            MAX( 0.0_wp, depo_sum(ib) * norm_fac *                    &
+                                                 aerosol_mass(icc)%conc(k,j,i) )
+                   ELSE
+                      surf%amsws(m,icc) = aerosol_mass(icc)%source(j,i) - MAX( 0.0_wp,              &
+                                          depo_sum(ib) *  norm_fac * aerosol_mass(icc)%conc(k,j,i) )
+                   ENDIF
                 ENDDO  ! ic
              ELSE
                 surf%answs(m,ib) = -depo_sum(ib) * norm_fac * aerosol_number(ib)%conc(k,j,i)
@@ -4639,12 +5526,26 @@
 !
 !--          Calculate changes in surface fluxes due to dry deposition
              IF ( include_emission )  THEN
-                surf%answs(m,ib) = aerosol_number(ib)%source(j,i) - MAX( 0.0_wp,                   &
-                                   depo(ib) * norm_fac * aerosol_number(ib)%conc(k,j,i) )
+                IF ( is_traffic )  THEN
+                   surf%answs(m,ib) = ( aerosol_number(ib)%source(j,i) +                            &
+                                        aerosol_number_tra(ib)%source(j,i) ) -                       &
+                                        MAX( 0.0_wp, depo(ib) * norm_fac *                          &
+                                             aerosol_number(ib)%conc(k,j,i) )
+                ELSE
+                   surf%answs(m,ib) = aerosol_number(ib)%source(j,i) - MAX( 0.0_wp,                 &
+                                      depo(ib) * norm_fac * aerosol_number(ib)%conc(k,j,i) )
+                ENDIF
                 DO  ic = 1, ncomponents_mass
                    icc = ( ic - 1 ) * nbins_aerosol + ib
-                   surf%amsws(m,icc) = aerosol_mass(icc)%source(j,i) - MAX( 0.0_wp,                &
-                                       depo(ib) *  norm_fac * aerosol_mass(icc)%conc(k,j,i) )
+                   IF ( is_traffic )  THEN
+                      surf%amsws(m,icc) = ( aerosol_mass(icc)%source(j,i) +                          &
+                                            aerosol_mass_tra(icc)%source(j,i) ) -                     &
+                                            MAX( 0.0_wp, depo(ib) * norm_fac *                       &
+                                                 aerosol_mass(icc)%conc(k,j,i) )
+                   ELSE
+                      surf%amsws(m,icc) = aerosol_mass(icc)%source(j,i) - MAX( 0.0_wp,              &
+                                          depo(ib) *  norm_fac * aerosol_mass(icc)%conc(k,j,i) )
+                   ENDIF
                 ENDDO  ! ic
              ELSE
                 surf%answs(m,ib) = -depo(ib) * norm_fac * aerosol_number(ib)%conc(k,j,i)
@@ -4660,7 +5561,8 @@
 
  END SUBROUTINE depo_surf
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Calculates particle loss and change in size distribution due to (Brownian)
@@ -4697,7 +5599,7 @@
 !> Matti Niskanen(FMI) 2012
 !> Anton Laakso  (FMI) 2013
 !> Juha Tonttila (FMI) 2014
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE coagulation( paero, ptstep, ptemp, ppres )
 
     IMPLICIT NONE
@@ -4725,6 +5627,7 @@
     REAL(wp), DIMENSION(nbins_aerosol,nbins_aerosol) ::  zcc  !< updated coagulation coeff. (m3/s)
 
     TYPE(t_section), DIMENSION(nbins_aerosol), INTENT(inout) ::  paero  !< Aerosol properties
+
 
     zdpart_mm = 0.0_wp
     zdpart_nn = 0.0_wp
@@ -4773,15 +5676,14 @@
 !
 !--    Coagulation gain in a bin: change in volume conc. (cm3/cm3):
        DO ll = start_subrange_1a, ib - 1
-          zplusterm(1:2) = zplusterm(1:2) + zcc(ll,ib) * paero(ll)%volc(1:2)
-          zplusterm(6:7) = zplusterm(6:7) + zcc(ll,ib) * paero(ll)%volc(6:7)
-          zplusterm(8)   = zplusterm(8)   + zcc(ll,ib) * paero(ll)%volc(8)
+          zplusterm(1:maxspec) = zplusterm(1:maxspec) + zcc(ll,ib) * paero(ll)%volc(1:maxspec)
+          zplusterm(maxspec+1)   = zplusterm(maxspec+1)   + zcc(ll,ib) * paero(ll)%volc(maxspec+1)
        ENDDO
 !
 !--    Volume and number concentrations after coagulation update [fxm]
-       paero(ib)%volc(1:2) = ( paero(ib)%volc(1:2) + ptstep * zplusterm(1:2) * paero(ib)%numc ) /  &
+       paero(ib)%volc(1:maxspec) = ( paero(ib)%volc(1:maxspec) + ptstep * zplusterm(1:maxspec) * paero(ib)%numc ) /  &
                             ( 1.0_wp + ptstep * zminusterm )
-       paero(ib)%volc(6:8) = ( paero(ib)%volc(6:8) + ptstep * zplusterm(6:8) * paero(ib)%numc ) /  &
+       paero(ib)%volc(maxspec+1) = ( paero(ib)%volc(maxspec+1) + ptstep * zplusterm(maxspec+1) * paero(ib)%numc ) /  &
                             ( 1.0_wp + ptstep * zminusterm )
        paero(ib)%numc = paero(ib)%numc / ( 1.0_wp + ptstep * zminusterm + 0.5_wp * ptstep *        &
                         zcc(ib,ib) * paero(ib)%numc )
@@ -4810,8 +5712,8 @@
 !
 !--    Particle volume gained from smaller particles in subranges 1, 2a and 2b
        DO  ll = start_subrange_1a, ib-1
-          zplusterm(1:2) = zplusterm(1:2) + zcc(ll,ib) * paero(ll)%volc(1:2)
-          zplusterm(6:8) = zplusterm(6:8) + zcc(ll,ib) * paero(ll)%volc(6:8)
+          zplusterm(1:maxspec) = zplusterm(1:maxspec) + zcc(ll,ib) * paero(ll)%volc(1:maxspec)
+          zplusterm(maxspec+1) = zplusterm(maxspec+1) + zcc(ll,ib) * paero(ll)%volc(maxspec+1)
        ENDDO
 !
 !--    Particle volume gained from smaller particles in 2a
@@ -4823,12 +5725,12 @@
 !--    Particle volume gained from smaller (and equal) particles in 2b
        IF ( .NOT. no_insoluble )  THEN
           DO  ll = start_subrange_2b, index_2b
-             zplusterm(1:8) = zplusterm(1:8) + zcc(ll,ib) * paero(ll)%volc(1:8)
+             zplusterm(1:maxspec+1) = zplusterm(1:maxspec+1) + zcc(ll,ib) * paero(ll)%volc(1:maxspec+1)
           ENDDO
        ENDIF
 !
 !--    Volume and number concentrations after coagulation update [fxm]
-       paero(ib)%volc(1:8) = ( paero(ib)%volc(1:8) + ptstep * zplusterm(1:8) * paero(ib)%numc ) /  &
+       paero(ib)%volc(1:maxspec+1) = ( paero(ib)%volc(1:maxspec+1) + ptstep * zplusterm(1:maxspec+1) * paero(ib)%numc ) /  &
                             ( 1.0_wp + ptstep * zminusterm )
        paero(ib)%numc = paero(ib)%numc / ( 1.0_wp + ptstep * zminusterm + 0.5_wp * ptstep *        &
                         zcc(ib,ib) * paero(ib)%numc )
@@ -4856,16 +5758,16 @@
 !
 !--       Particle volume gained from smaller particles in subranges 1 & 2a
           DO  ll = start_subrange_1a, index_2a - 1
-             zplusterm(1:8) = zplusterm(1:8) + zcc(ll,ib) * paero(ll)%volc(1:8)
+             zplusterm(1:maxspec+1) = zplusterm(1:maxspec+1) + zcc(ll,ib) * paero(ll)%volc(1:maxspec+1)
           ENDDO
 !
 !--       Particle volume gained from smaller particles in 2b
           DO  ll = start_subrange_2b, ib - 1
-             zplusterm(1:8) = zplusterm(1:8) + zcc(ll,ib) * paero(ll)%volc(1:8)
+             zplusterm(1:maxspec+1) = zplusterm(1:maxspec+1) + zcc(ll,ib) * paero(ll)%volc(1:maxspec+1)
           ENDDO
 !
 !--       Volume and number concentrations after coagulation update [fxm]
-          paero(ib)%volc(1:8) = ( paero(ib)%volc(1:8) + ptstep * zplusterm(1:8) * paero(ib)%numc ) &
+          paero(ib)%volc(1:maxspec+1) = ( paero(ib)%volc(1:maxspec+1) + ptstep * zplusterm(1:maxspec+1) * paero(ib)%numc ) &
                                 / ( 1.0_wp + ptstep * zminusterm )
           paero(ib)%numc = paero(ib)%numc / ( 1.0_wp + ptstep * zminusterm + 0.5_wp * ptstep *     &
                            zcc(ib,ib) * paero(ib)%numc )
@@ -4874,14 +5776,15 @@
 
  END SUBROUTINE coagulation
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Calculation of coagulation coefficients. Extended version of the function
 !> originally found in mo_salsa_init.
 !
 !> J. Tonttila, FMI, 05/2014
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  REAL(wp) FUNCTION coagc( diam1, diam2, mass1, mass2, temp, pres )
 
     IMPLICIT NONE
@@ -4908,6 +5811,8 @@
     REAL(wp), DIMENSION (2) ::  mtvel   !< particle mean thermal velocity (m/s)
     REAL(wp), DIMENSION (2) ::  omega   !< particle mean free path
     REAL(wp), DIMENSION (2) ::  tva     !< temporary variable (m)
+
+
 !
 !-- Initialisation
     coagc   = 0.0_wp
@@ -4976,7 +5881,8 @@
 
  END FUNCTION coagc
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Calculates the change in particle volume and gas phase
@@ -5007,7 +5913,7 @@
 !> Harri Kokkola (FMI) 2006
 !> Juha Tonttila (FMI) 2014
 !> Rewritten to PALM by Mona Kurppa (UHel) 2017
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE condensation( paero, pc_sa, pc_ocnv, pcocsv, pchno3, pc_nh3, pcw, pcs, ptemp, ppres,   &
                           ptstep, prtcl )
 
@@ -5060,6 +5966,7 @@
     TYPE(component_index), INTENT(in) :: prtcl  !< Keeps track which substances are used
 
     TYPE(t_section), DIMENSION(nbins_aerosol), INTENT(inout) ::  paero  !< Aerosol properties
+
 
     zj3n3  = 0.0_wp
     zrh    = pcw / pcs
@@ -5250,7 +6157,8 @@
 
  END SUBROUTINE condensation
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Calculates the particle number and volume increase, and gas-phase
@@ -5288,8 +6196,7 @@
 !> Harri Kokkola (FMI) 2006
 !> Matti Niskanen(FMI) 2012
 !> Anton Laakso  (FMI) 2013
-!------------------------------------------------------------------------------!
-
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE nucleation( paero, ptemp, prh, ppres, pc_sa, pc_ocnv, pc_nh3, ptstep, pj3n3, pxsa,     &
                         pxocnv )
 
@@ -5382,6 +6289,8 @@
     REAL(wp), DIMENSION(nbins_aerosol) ::  zsigma_x2   !<
 
     TYPE(t_section), DIMENSION(nbins_aerosol), INTENT(inout) ::  paero  !< aerosol properties
+
+
 !
 !-- 1) Nucleation rate (zjnuc) and diameter of critical cluster (zdcrit)
     zjnuc  = 0.0_wp
@@ -5576,6 +6485,7 @@
 !
 !-- Condensational sink (#/m2, Eq. 3)
     zcsink = SUM( paero(:)%dwet * zbeta * paero(:)%numc )
+    IF ( zcsink /= zcsink )  zcsink = 1.0E-30_wp   ! protect against NaN
 !
 !-- 2.2.3) Parameterised formation rate of detectable 3 nm particles (i.e. J3)
     IF ( nj3 == 1 )  THEN   ! Kerminen and Kulmala (2002)
@@ -5587,6 +6497,7 @@
 !
 !--       Mean diameter of backgroud population (nm)
           zdmean = 1.0_wp / SUM( paero(:)%numc ) * SUM( paero(:)%numc * paero(:)%dwet ) * 1.0E+9_wp
+          zdmean = MAX( zdmean, 1.0E-10_wp )   ! guard against zero/negative
 !
 !--       Proportionality factor (nm2*m2/h) (Eq. 22)
           zgamma = 0.23_wp * ( zdcrit * 1.0E+9_wp )**0.2_wp * ( zdmean / 150.0_wp )**0.048_wp *    &
@@ -5745,14 +6656,15 @@
 
  END SUBROUTINE nucleation
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Calculate the nucleation rate and the size of critical clusters assuming
 !> binary nucleation.
 !> Parametrisation according to Vehkamaki et al. (2002), J. Geophys. Res.,
 !> 107(D22), 4622. Called from subroutine nucleation.
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE binnucl( pc_sa, ptemp, prh, pnuc_rate, pn_crit_sa, pn_crit_ocnv, pd_crit, pk_sa,       &
                      pk_ocnv )
 
@@ -5788,6 +6700,7 @@
     REAL(wp), INTENT(out) ::  pd_crit       !< diameter of critical cluster (m)
     REAL(wp), INTENT(out) ::  pk_sa         !< Lever: if pk_sa = 1, H2SO4 is involved in nucleation.
     REAL(wp), INTENT(out) ::  pk_ocnv       !< Lever: if pk_ocnv = 1, organic compounds are involved
+
 
     pnuc_rate = 0.0_wp
     pd_crit   = 1.0E-9_wp
@@ -5954,14 +6867,15 @@
 
  END SUBROUTINE binnucl
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Calculate the nucleation rate and the size of critical clusters assuming
 !> ternary nucleation. Parametrisation according to:
 !> Napari et al. (2002), J. Chem. Phys., 116, 4221-4227 and
 !> Napari et al. (2002), J. Geophys. Res., 107(D19), AAC 6-1-ACC 6-6.
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE ternucl( pc_sa, pc_nh3, ptemp, prh, pnuc_rate, pn_crit_sa, pn_crit_ocnv, pd_crit,      &
                      pk_sa, pk_ocnv )
 
@@ -5983,24 +6897,26 @@
     REAL(wp), INTENT(out) ::  pn_crit_ocnv  !< number of organic molecules in cluster (#)
     REAL(wp), INTENT(out) ::  pn_crit_sa    !< number of H2SO4 molecules in cluster (#)
     REAL(wp), INTENT(out) ::  pnuc_rate     !< nucleation rate (#/(m3 s))
+
+
 !
 !-- 1) Checking that we are in the validity range of the parameterization.
 !--    Validity of parameterization : DO NOT REMOVE!
     IF ( ptemp < 240.0_wp  .OR.  ptemp > 300.0_wp )  THEN
-       message_string = 'Invalid input value: ptemp'
-       CALL message( 'salsa_mod: ternucl', 'PA0689', 1, 2, 0, 6, 0 )
+       message_string = 'invalid input value: ptemp'
+       CALL message( 'salsa_mod: ternucl', 'SAL0031', 1, 2, 0, 6, 0 )
     ENDIF
     IF ( prh < 0.05_wp  .OR.  prh > 0.95_wp )  THEN
-       message_string = 'Invalid input value: prh'
-       CALL message( 'salsa_mod: ternucl', 'PA0649', 1, 2, 0, 6, 0 )
+       message_string = 'invalid input value: prh'
+       CALL message( 'salsa_mod: ternucl', 'SAL0032', 1, 2, 0, 6, 0 )
     ENDIF
     IF ( pc_sa < 1.0E+4_wp  .OR.  pc_sa > 1.0E+9_wp )  THEN
-       message_string = 'Invalid input value: pc_sa'
-       CALL message( 'salsa_mod: ternucl', 'PA0650', 1, 2, 0, 6, 0 )
+       message_string = 'invalid input value: pc_sa'
+       CALL message( 'salsa_mod: ternucl', 'SAL0033', 1, 2, 0, 6, 0 )
     ENDIF
     IF ( pc_nh3 < 0.1_wp  .OR.  pc_nh3 > 100.0_wp )  THEN
-       message_string = 'Invalid input value: pc_nh3'
-       CALL message( 'salsa_mod: ternucl', 'PA0651', 1, 2, 0, 6, 0 )
+       message_string = 'invalid input value: pc_nh3'
+       CALL message( 'salsa_mod: ternucl', 'SAL0034', 1, 2, 0, 6, 0 )
     ENDIF
 
     zlognh3 = LOG( pc_nh3 )
@@ -6086,8 +7002,8 @@
        pnuc_rate = 0.0_wp
        pd_crit   = 1.0E-9_wp
     ELSEIF ( pnuc_rate > 1.0E6_wp )  THEN
-       message_string = 'Invalid output value: nucleation rate > 10^6 1/cm3s'
-       CALL message( 'salsa_mod: ternucl', 'PA0623', 1, 2, 0, 6, 0 )
+       message_string = 'invalid output value: nucleation rate > 10^6 1/cm3s'
+       CALL message( 'salsa_mod: ternucl', 'SAL0035', 1, 2, 0, 6, 0 )
     ENDIF
     pnuc_rate = pnuc_rate * 1.0E6_wp   ! (#/(m3 s))
 !
@@ -6112,14 +7028,15 @@
 
  END SUBROUTINE ternucl
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Function z_n_nuc_tayl is connected to the calculation of self-coagualtion of
 !> small particles. It calculates number of the particles in the size range
 !> [zdcrit,dx] using Taylor-expansion (please note that the expansion is not
 !> valid for certain rational numbers, e.g. -4/3 and -3/2)
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  FUNCTION z_n_nuc_tayl( d1, dx, zm_para, zjnuc_t, zeta, z_gr_tot )
 
     IMPLICIT NONE
@@ -6139,6 +7056,7 @@
     REAL(wp) ::  z_gr_tot      !< total growth rate (nm/h)
     REAL(wp) ::  zm_para       !< m parameter in Lehtinen et al. (2007), Eq. 6
 
+
     z_n_nuc_tayl = 0.0_wp
 
     DO  i = 0, 29
@@ -6157,14 +7075,15 @@
 
  END FUNCTION z_n_nuc_tayl
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Calculates the condensation of water vapour on aerosol particles. Follows the
 !> analytical predictor method by Jacobson (2005).
 !> For equations, see Jacobson (2005), Fundamentals of atmospheric modelling
 !> (2nd edition).
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE gpparth2o( paero, ptemp, ppres, pcs, pcw, ptstep )
 
     IMPLICIT NONE
@@ -6179,7 +7098,7 @@
     REAL(wp) ::  zaelwc1    !< Current aerosol water content (kg/m3)
     REAL(wp) ::  zaelwc2    !< New aerosol water content after equilibrium calculation (kg/m3)
     REAL(wp) ::  zbeta      !< Transitional correction factor
-    REAL(wp) ::  zcwc       !< Current water vapour mole concentration in aerosols (mol/m3)
+    REAL(wp) ::  zcwc       !< Current water vapour mole concentrations in aerosols (mol/m3)
     REAL(wp) ::  zcwint     !< Current and new water vapour mole concentrations (mol/m3)
     REAL(wp) ::  zcwn       !< New water vapour mole concentration (mol/m3)
     REAL(wp) ::  zcwtot     !< Total water mole concentration (mol/m3)
@@ -6208,6 +7127,8 @@
     REAL(wp), INTENT(inout) ::  pcw  !< Water vapour concentration (kg/m3)
 
     TYPE(t_section), DIMENSION(nbins_aerosol), INTENT(inout) ::  paero  !< Aerosol properties
+
+
 !
 !-- Relative humidity [0-1]
     zrh = pcw / pcs
@@ -6216,7 +7137,7 @@
     nstr = start_subrange_2a
 !
 !-- Save the current aerosol water content, 8 in paero is H2O
-    zaelwc1 = SUM( paero(start_subrange_1a:end_subrange_2b)%volc(8) ) * arhoh2o
+    zaelwc1 = SUM( paero(start_subrange_1a:end_subrange_2b)%volc(maxspec+1) ) * arhoh2o
 !
 !-- Equilibration:
     IF ( advect_particle_water )  THEN
@@ -6228,7 +7149,7 @@
     ENDIF
 !
 !-- The new aerosol water content after equilibrium calculation
-    zaelwc2 = SUM( paero(start_subrange_1a:end_subrange_2b)%volc(8) ) * arhoh2o
+    zaelwc2 = SUM( paero(start_subrange_1a:end_subrange_2b)%volc(maxspec+1) ) * arhoh2o
 !
 !-- New water vapour mixing ratio (kg/m3)
     pcw = pcw - ( zaelwc2 - zaelwc1 ) * ppres * amdair / ( argas * ptemp )
@@ -6297,7 +7218,7 @@
 !
 !-- Current mole concentrations of water
     zcwc        = pcw * rhoair / amh2o   ! as vapour
-    zcwcae(:)   = paero(:)%volc(8) * arhoh2o / amh2o   ! in aerosols
+    zcwcae(:)   = paero(:)%volc(maxspec+1) * arhoh2o / amh2o   ! in aerosols
     zcwtot      = zcwc + SUM( zcwcae )   ! total water concentration
     zcwnae(:)   = 0.0_wp
     zcwintae(:) = zcwcae(:)
@@ -6337,15 +7258,16 @@
     zcwn      = zcwint
     zcwnae(:) = zcwintae(:)
     pcw       = zcwn * amh2o / rhoair
-    paero(:)%volc(8) = MAX( 0.0_wp, zcwnae(:) * amh2o / arhoh2o )
+    paero(:)%volc(maxspec+1) = MAX( 0.0_wp, zcwnae(:) * amh2o / arhoh2o )
 
  END SUBROUTINE gpparth2o
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Calculates the activity coefficient of liquid water
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  REAL(wp) FUNCTION acth2o( ppart, pcw )
 
     IMPLICIT NONE
@@ -6357,6 +7279,7 @@
 
     TYPE(t_section), INTENT(in) ::  ppart !< Aerosol properties of a bin
 
+
     zns = ( 3.0_wp * ( ppart%volc(1) * arhoh2so4 / amh2so4 ) + ( ppart%volc(2) * arhooc / amoc ) + &
             2.0_wp * ( ppart%volc(5) * arhoss / amss ) + ( ppart%volc(6) * arhohno3 / amhno3 ) +   &
             ( ppart%volc(7) * arhonh3 / amnh3 ) )
@@ -6364,7 +7287,7 @@
     IF ( PRESENT(pcw) ) THEN
        znw = pcw
     ELSE
-       znw = ppart%volc(8) * arhoh2o / amh2o
+       znw = ppart%volc(maxspec+1) * arhoh2o / amh2o
     ENDIF
 !
 !-- Activity = partial pressure of water vapour / sat. vapour pressure of water over a liquid surface
@@ -6374,7 +7297,8 @@
 
  END FUNCTION acth2o
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Calculates the dissolutional growth of particles (i.e. gas transfers to a
@@ -6385,7 +7309,7 @@
 !> Called from subroutine condensation.
 !> Coded by:
 !> Harri Kokkola (FMI)
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE gpparthno3( ppres, ptemp, paero, pghno3, pgnh3, pcw, pcs, pbeta, ptstep )
 
     IMPLICIT NONE
@@ -6440,6 +7364,8 @@
     REAL(wp), DIMENSION(nbins_aerosol), INTENT(in) ::  pbeta !< transitional correction factor for
 
     TYPE(t_section), DIMENSION(nbins_aerosol), INTENT(inout) ::  paero !< Aerosol properties
+
+
 !
 !-- Initialise:
     adt            = ptstep
@@ -6457,10 +7383,11 @@
     zdfvap = 5.1111E-10_wp * ptemp**1.75_wp * ( p_0 + 1325.0_wp ) / ppres
 !
 !-- Kelvin effects (Jacobson (2005), eq. 16.33)
-    zkel_hno3_ae(1:nbins_aerosol) = EXP( 4.0_wp * surfw0 * amvhno3 /                               &
-                                    ( abo * ptemp * paero(1:nbins_aerosol)%dwet ) )
-    zkel_nh3_ae(1:nbins_aerosol) = EXP( 4.0_wp * surfw0 * amvnh3 /                                 &
-                                   ( abo * ptemp * paero(1:nbins_aerosol)%dwet ) )
+!-- Clip to 50 to prevent overflow for BC-dominated particles near-zero dwet
+    zkel_hno3_ae(1:nbins_aerosol) = EXP( MIN( 50.0_wp, 4.0_wp * surfw0 * amvhno3 /                 &
+                                    ( abo * ptemp * paero(1:nbins_aerosol)%dwet ) ) )
+    zkel_nh3_ae(1:nbins_aerosol) = EXP( MIN( 50.0_wp, 4.0_wp * surfw0 * amvnh3 /                   &
+                                   ( abo * ptemp * paero(1:nbins_aerosol)%dwet ) ) )
 !
 !-- Current vapour mole concentrations (mol/m3)
     zc_hno3_c = pghno3 / avo  ! HNO3
@@ -6536,11 +7463,13 @@
     ENDDO
 
  END SUBROUTINE gpparthno3
-!------------------------------------------------------------------------------!
+
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Calculate the equilibrium concentrations above aerosols (reference?)
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE nitrate_ammonium_equilibrium( prh, ptemp, ppart, pcg_hno3_eq, pcg_nh3_eq, pgamma_hno3, &
                                           pgamma_nh4, pgamma_nh4hso2, pgamma_hhso4, pmols )
 
@@ -6553,6 +7482,7 @@
     REAL(wp) ::  zp_hno3      !< Equilibrium vapor pressures (Pa) of HNO3
     REAL(wp) ::  zp_nh3       !< Equilibrium vapor pressures (Pa) of NH3
     REAL(wp) ::  zwatertotal  !< Total water in particles (mol/m3)
+    REAL(wp) ::  zrh          !< Bounded stable relative humidity
 
     REAL(wp), INTENT(in) ::  prh    !< relative humidity
     REAL(wp), INTENT(in) ::  ptemp  !< ambient temperature (K)
@@ -6563,14 +7493,15 @@
     REAL(wp), DIMENSION(nbins_aerosol), INTENT(inout) ::  pcg_nh3_eq      !< equilibrium molar
                                                                           !< concentration: of NH3
     REAL(wp), DIMENSION(nbins_aerosol), INTENT(inout) ::  pcg_hno3_eq     !< of HNO3
-    REAL(wp), DIMENSION(nbins_aerosol), INTENT(inout) ::  pgamma_hhso4    !< activity coeff. of HHSO4
-    REAL(wp), DIMENSION(nbins_aerosol), INTENT(inout) ::  pgamma_nh4      !< activity coeff. of NH3
-    REAL(wp), DIMENSION(nbins_aerosol), INTENT(inout) ::  pgamma_nh4hso2  !< activity coeff. of NH4HSO2
-    REAL(wp), DIMENSION(nbins_aerosol), INTENT(inout) ::  pgamma_hno3     !< activity coeff. of HNO3
+    REAL(wp), DIMENSION(nbins_aerosol), INTENT(inout) ::  pgamma_hhso4     !< activity coeff. of HHSO4
+    REAL(wp), DIMENSION(nbins_aerosol), INTENT(inout) ::  pgamma_nh4       !< activity coeff. of NH3
+    REAL(wp), DIMENSION(nbins_aerosol), INTENT(inout) ::  pgamma_nh4hso2   !< activity coeff. of NH4HSO2
+    REAL(wp), DIMENSION(nbins_aerosol), INTENT(inout) ::  pgamma_hno3      !< activity coeff. of HNO3
 
     REAL(wp), DIMENSION(nbins_aerosol,maxspec), INTENT(inout) ::  pmols  !< Ion molalities
 
     TYPE(t_section), DIMENSION(nbins_aerosol), INTENT(inout) ::  ppart  !< Aerosol properties
+
 
     zgammas     = 0.0_wp
     zhlp        = 0.0_wp
@@ -6580,15 +7511,34 @@
     zp_nh3      = 0.0_wp
     zwatertotal = 0.0_wp
 
+!
+!-- APPLY THE BOUNDING SAFETY GATE HERE FOR NUMERICAL STABILITY:
+    zrh = prh
+    zrh = MAX( zrh, 0.05_wp )
+    zrh = MIN( zrh, 0.98_wp )
+
     DO  ib = 1, nbins_aerosol
 
        IF ( ppart(ib)%numc < nclim )  CYCLE
+!
+!--    Skip bins with negligible soluble SO4 (e.g. BC/OC-dominated traffic particles)
+       IF ( ppart(ib)%volc(1) * arhoh2so4 / amh2so4 <= 1.0E-30_wp )  THEN
+          pcg_hno3_eq(ib) = 0.0_wp
+          pcg_nh3_eq(ib)  = 0.0_wp
+          pgamma_hno3(ib)    = 1.0_wp
+          pgamma_nh4(ib)     = 1.0_wp
+          pgamma_nh4hso2(ib) = 1.0_wp
+          pgamma_hhso4(ib)   = 1.0_wp
+          pmols(ib,:) = 0.0_wp
+          CYCLE
+       ENDIF
 !
 !--    Ion molar concentrations: 2*H2SO4 + CL + NO3 - Na - NH4
        zhlp = 2.0_wp * ppart(ib)%volc(1) * arhoh2so4 / amh2so4 + ppart(ib)%volc(5) * arhoss / amss &
               + ppart(ib)%volc(6) * arhohno3 / amhno3 - ppart(ib)%volc(5) * arhoss / amss -        &
               ppart(ib)%volc(7) * arhonh3 / amnh3
 
+       zhlp = MAX( zhlp, 0.0_wp )                         ! H+ cannot be negative
        zions(1) = zhlp                                   ! H+
        zions(2) = ppart(ib)%volc(7) * arhonh3 / amnh3     ! NH4+
        zions(3) = ppart(ib)%volc(5) * arhoss / amss       ! Na+
@@ -6597,11 +7547,13 @@
        zions(6) = ppart(ib)%volc(6) * arhohno3 / amhno3   ! NO3-
        zions(7) = ppart(ib)%volc(5) * arhoss / amss       ! Cl-
 
-       zwatertotal = ppart(ib)%volc(8) * arhoh2o / amh2o
+       zwatertotal = ppart(ib)%volc(maxspec+1) * arhoh2o / amh2o
        IF ( zwatertotal > 1.0E-30_wp )  THEN
-          CALL inorganic_pdfite( prh, ptemp, zions, zwatertotal, zp_hno3, zp_hcl, zp_nh3, zgammas, &
+!
+!--       PASS YOUR NEW SAFE 'zrh' INSTEAD OF THE RAW 'prh' HERE:
+          CALL inorganic_pdfite( zrh, ptemp, zions, zwatertotal, zp_hno3, zp_hcl, zp_nh3, zgammas, &
                                  pmols(ib,:) )
-       ENDIF
+       ENDIF      
 !
 !--    Activity coefficients
        pgamma_hno3(ib)    = zgammas(1)  ! HNO3
@@ -6615,13 +7567,14 @@
 
     ENDDO
 
-  END SUBROUTINE nitrate_ammonium_equilibrium
+ END SUBROUTINE nitrate_ammonium_equilibrium
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Calculate saturation ratios of NH4 and HNO3 for aerosols
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE nitrate_ammonium_saturation( ptemp, ppart, pachno3, pacnh4hso2, pachhso4, pchno3eq,    &
                                          pchno3, pc_nh3, pkelhno3, pkelnh3, psathno3, psatnh3 )
 
@@ -6676,6 +7629,7 @@
 
     TYPE(t_section), DIMENSION(nbins_aerosol), INTENT(inout) ::  ppart  !< Aerosol properties
 
+
     zmol_cl  = 0.0_wp
     zmol_h   = 0.0_wp
     zmol_na  = 0.0_wp
@@ -6698,11 +7652,18 @@
 
     DO  ib = 1, nbins_aerosol
 
-       IF ( ppart(ib)%numc > nclim  .AND.  ppart(ib)%volc(8) > 1.0E-30_wp  )  THEN
+       IF ( ppart(ib)%numc > nclim  .AND.  ppart(ib)%volc(maxspec+1) > 1.0E-30_wp  )  THEN
+!
+!--       Skip bins with negligible soluble SO4 (e.g. BC/OC-dominated traffic)
+          IF ( ppart(ib)%volc(1) * arhoh2so4 / amh2so4 <= 1.0E-30_wp )  THEN
+             psathno3(ib) = 1.0_wp
+             psatnh3(ib)  = 1.0_wp
+             CYCLE
+          ENDIF
 !
 !--       Molality of H+ and NO3-
           zhlp1 = pc_nh3(ib) * amnh3 + ppart(ib)%volc(1) * arhoh2so4 + ppart(ib)%volc(2) * arhooc  &
-                  + ppart(ib)%volc(5) * arhoss + ppart(ib)%volc(8) * arhoh2o
+                  + ppart(ib)%volc(5) * arhoss + ppart(ib)%volc(maxspec+1) * arhoh2o
           zmol_no3 = pchno3(ib) / zhlp1  !< mol/kg
 !
 !--       Particle mole concentration ratio: (NH3+SS)/H2SO4
@@ -6713,17 +7674,17 @@
 !
 !--          Molality of SO4(2-)
              zhlp1 = pc_nh3(ib) * amnh3 + pchno3(ib) * amhno3 + ppart(ib)%volc(2) * arhooc +       &
-                     ppart(ib)%volc(5) * arhoss + ppart(ib)%volc(8) * arhoh2o
+                     ppart(ib)%volc(5) * arhoss + ppart(ib)%volc(maxspec+1) * arhoh2o
              zmol_so4 = ( ppart(ib)%volc(1) * arhoh2so4 / amh2so4 ) / zhlp1
 !
 !--          Molality of Cl-
              zhlp1 = pc_nh3(ib) * amnh3 + pchno3(ib) * amhno3 + ppart(ib)%volc(2) * arhooc +       &
-                     ppart(ib)%volc(1) * arhoh2so4 + ppart(ib)%volc(8) * arhoh2o
+                     ppart(ib)%volc(1) * arhoh2so4 + ppart(ib)%volc(maxspec+1) * arhoh2o
              zmol_cl = ( ppart(ib)%volc(5) * arhoss / amss ) / zhlp1
 !
 !--          Molality of NH4+
              zhlp1 =  pchno3(ib) * amhno3 + ppart(ib)%volc(1) * arhoh2so4 + ppart(ib)%volc(2) *    &
-                      arhooc + ppart(ib)%volc(5) * arhoss + ppart(ib)%volc(8) * arhoh2o
+                      arhooc + ppart(ib)%volc(5) * arhoss + ppart(ib)%volc(maxspec+1) * arhoh2o
              zmol_nh4 = pc_nh3(ib) / zhlp1
 !
 !--          Molality of Na+
@@ -6744,7 +7705,7 @@
 
           ENDIF
 
-          zhlp1 = ppart(ib)%volc(8) * arhoh2o * argas * ptemp * k_gl_hno3
+          zhlp1 = ppart(ib)%volc(maxspec+1) * arhoh2o * argas * ptemp * k_gl_hno3
 !
 !--       Saturation ratio for NH3 and for HNO3
           IF ( zmol_h > 0.0_wp )  THEN
@@ -6765,7 +7726,8 @@
 
   END SUBROUTINE nitrate_ammonium_saturation
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Prototype module for calculating the water content of a mixed inorganic/
@@ -6789,7 +7751,7 @@
 !> Topping et al. (2005b) A curved multi-component aerosol hygroscopicity model framework: Part 2 -
 !>    Including organic compounds. Atmospheric Chemistry and Physics 2005;5:1223-1242.
 !> Wagman et al. (1982). The NBS tables of chemical thermodynamic properties: selected values for
-!>    inorganic and C₁ and C₂ organic substances in SI units (book)
+!>    inorganic and C1 and C2 organic substances in SI units (book)
 !> Zaveri et al. (2005). A new method for multicomponent activity coefficients of electrolytes in
 !>    aqueous atmospheric aerosols, JGR, 110, D02201, 2005.
 !
@@ -6799,14 +7761,14 @@
 !> Manchester, 2007
 !
 !> Rewritten to PALM by Mona Kurppa, UHel, 2017
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE inorganic_pdfite( rh, temp, ions, water_total, press_hno3, press_hcl, press_nh3,       &
                               gamma_out, mols_out )
 
     IMPLICIT NONE
 
     INTEGER(iwp) ::  binary_case
-    INTEGER(iwp) ::  full_complexity
+    INTEGER(iwp) ::  full_complexity = 1
 
     REAL(wp) ::  a                         !< auxiliary variable
     REAL(wp) ::  act_product               !< ionic activity coef. product:
@@ -6919,6 +7881,7 @@
     REAL(wp) ::  sulphuric_acid_eq_frac    !<
     REAL(wp) ::  temp                      !< temperature
     REAL(wp) ::  water_total               !<
+    REAL(wp) ::  zrh                       !< Bounded stable relative humidity 
 
     REAL(wp), DIMENSION(:) ::  gamma_out !< Activity coefficient for calculating the non-ideal
                                          !< dissociation constants
@@ -6930,6 +7893,7 @@
                                          !< 4: SO4(2-), 5: HSO4-, 6: NO3-, 7: Cl-
     REAL(wp), DIMENSION(:) ::  mols_out  !< ion molality output (mol/kg): 1: H+, 2: NH4+, 3: Na+,
                                          !< 4: SO4(2-), 5: HSO4-, 6: NO3-, 7: Cl-
+
 !
 !-- Value initialisation
     binary_h2so4    = 0.0_wp
@@ -6996,6 +7960,11 @@
     press_hcl  = 0.0_wp  !< multicomponent particle
     press_nh3  = 0.0_wp
     gamma_out  = 1.0_wp  !< i.e. don't alter the ideal mixing ratios if there's nothing there.
+
+!-- THE BOUNDING SAFETY GATE HERE FOR NUMERICAL STABILITY:
+    zrh = rh
+    zrh = MAX( zrh, 0.05_wp )
+    zrh = MIN( zrh, 0.98_wp )
 !
 !-- 1) - COMPOSITION DEFINITIONS
 !
@@ -7006,8 +7975,25 @@
 !-- and acids which provide a pairing between each anion and cation: (NH4)2SO4, NH4NO3, NH4Cl,
 !-- Na2SO4, NaNO3, NaCl, H2SO4, HNO3, HCL. The organic compound is treated as a seperate solute.
 !-- Ions: 1: H+, 2: NH4+, 3: Na+, 4: SO4(2-), 5: HSO4-, 6: NO3-, 7: Cl-
-!
     charge_sum = ions(1) + ions(2) + ions(3) + 2.0_wp * ions(4) + ions(5) + ions(6) + ions(7)
+!
+!-- If charge_sum is negligible (e.g. BC-dominated particles with near-zero soluble ions),
+!-- skip the thermodynamics to avoid FPE (division by zero, log of zero, etc.).
+    IF ( charge_sum <= 1.0E-30_wp ) THEN
+       gamma_out = 1.0_wp
+       mols_out  = 0.0_wp
+       RETURN
+    ENDIF
+!
+!-- Also skip if any individual ion concentration is negative (e.g. from non-linear advection
+!-- producing negative scalar values). Negative ions produce negative equivalent fractions
+!-- which cause the activity coefficient polynomials to compute garbage, ultimately leading
+!-- to FPE in downstream calculations.
+    IF ( ANY( ions(1:7) < 0.0_wp ) ) THEN
+       gamma_out = 1.0_wp
+       mols_out  = 0.0_wp
+       RETURN
+    ENDIF
     nitric_acid       = ( 2.0_wp * ions(1) * ions(6) ) / charge_sum
     hydrochloric_acid = ( 2.0_wp * ions(1) * ions(7) ) / charge_sum
     sulphuric_acid    = ( 2.0_wp * ions(1) * ions(4) ) / charge_sum
@@ -7077,66 +8063,74 @@
 !-- used for simplification of the fit expressions when using limited composition regions. This
 !-- section of code calculates the bisulphate ion concentration.
 !
-    IF ( ions(1) > 0.0_wp .AND. ions(4) > 0.0_wp ) THEN
+!-- Initialise to safe defaults (1.0 = ideal) in case the IF block below is skipped
+!-- due to near-zero or zero H+ (e.g. NH3-rich traffic particles).
+    gamma_hhso4 = 1.0_wp
+    gamma_h2so4 = 1.0_wp
+    binary_hhso4 = 0.0_wp
+    binary_h2so4 = 0.0_wp
+    ln_hhso4_act = 0.0_wp
+    ln_h2so4_act = 0.0_wp
+    IF ( ions(1) > 0.0_wp .AND. ions(4) > 0.0_wp )  THEN
 !
 !--    HHSO4:
        binary_case = 1
-       IF ( rh > 0.1_wp  .AND.  rh < 0.9_wp )  THEN
-          binary_hhso4 = -4.9521_wp * rh**3 + 9.2881_wp * rh**2 - 10.777_wp * rh + 6.0534_wp
-       ELSEIF ( rh >= 0.9_wp  .AND.  rh < 0.955_wp )  THEN
-          binary_hhso4 = -6.3777_wp * rh + 5.962_wp
-       ELSEIF ( rh >= 0.955_wp  .AND.  rh < 0.99_wp )  THEN
-          binary_hhso4 = 2367.2_wp * rh**3 - 6849.7_wp * rh**2 + 6600.9_wp * rh - 2118.7_wp
-       ELSEIF ( rh >= 0.99_wp  .AND.  rh < 0.9999_wp )  THEN
-          binary_hhso4 = 3E-7_wp * rh**5 - 2E-5_wp * rh**4 + 0.0004_wp * rh**3 - 0.0035_wp * rh**2 &
-                         + 0.0123_wp * rh - 0.3025_wp
+       IF ( zrh > 0.1_wp  .AND.  zrh < 0.9_wp )  THEN
+          binary_hhso4 = -4.9521_wp * zrh**3 + 9.2881_wp * zrh**2 - 10.777_wp * zrh + 6.0534_wp
+       ELSEIF ( zrh >= 0.9_wp  .AND.  zrh < 0.955_wp )  THEN
+          binary_hhso4 = -6.3777_wp * zrh + 5.962_wp
+       ELSEIF ( zrh >= 0.955_wp  .AND.  zrh < 0.99_wp )  THEN
+          binary_hhso4 = 2367.2_wp * zrh**3 - 6849.7_wp * zrh**2 + 6600.9_wp * zrh - 2118.7_wp
+       ELSEIF ( zrh >= 0.99_wp  .AND.  zrh < 0.9999_wp )  THEN
+          binary_hhso4 = 3E-7_wp * zrh**5 - 2E-5_wp * zrh**4 + 0.0004_wp * zrh**3 - 0.0035_wp * zrh**2 &
+                         + 0.0123_wp * zrh - 0.3025_wp
        ENDIF
 
        IF ( nitric_acid > 0.0_wp )  THEN
-          hno3_hhso4 = -4.2204_wp * rh**4 + 12.193_wp * rh**3 - 12.481_wp * rh**2 + 6.459_wp * rh  &
+          hno3_hhso4 = -4.2204_wp * zrh**4 + 12.193_wp * zrh**3 - 12.481_wp * zrh**2 + 6.459_wp * zrh  &
                        - 1.9004_wp
        ENDIF
 
        IF ( hydrochloric_acid > 0.0_wp )  THEN
-          hcl_hhso4 = -54.845_wp * rh**7 + 209.54_wp * rh**6 - 336.59_wp * rh**5 + 294.21_wp *     &
-                      rh**4 - 150.07_wp * rh**3 + 43.767_wp * rh**2 - 6.5495_wp * rh + 0.60048_wp
+          hcl_hhso4 = -54.845_wp * zrh**7 + 209.54_wp * zrh**6 - 336.59_wp * zrh**5 + 294.21_wp *     &
+                      zrh**4 - 150.07_wp * zrh**3 + 43.767_wp * zrh**2 - 6.5495_wp * zrh + 0.60048_wp
        ENDIF
 
        IF ( ammonium_sulphate > 0.0_wp )  THEN
-          nh42so4_hhso4 = 16.768_wp * rh**3 - 28.75_wp * rh**2 + 20.011_wp * rh - 8.3206_wp
+          nh42so4_hhso4 = 16.768_wp * zrh**3 - 28.75_wp * zrh**2 + 20.011_wp * zrh - 8.3206_wp
        ENDIF
 
        IF ( ammonium_nitrate > 0.0_wp )  THEN
-          nh4no3_hhso4 = -17.184_wp * rh**4 + 56.834_wp * rh**3 - 65.765_wp * rh**2 +              &
-                         35.321_wp * rh - 9.252_wp
+          nh4no3_hhso4 = -17.184_wp * zrh**4 + 56.834_wp * zrh**3 - 65.765_wp * zrh**2 +              &
+                         35.321_wp * zrh - 9.252_wp
        ENDIF
 
        IF (ammonium_chloride > 0.0_wp )  THEN
-          IF ( rh < 0.2_wp .AND. rh >= 0.1_wp )  THEN
-             nh4cl_hhso4 = 3.2809_wp * rh - 2.0637_wp
-          ELSEIF ( rh >= 0.2_wp .AND. rh < 0.99_wp )  THEN
-             nh4cl_hhso4 = -1.2981_wp * rh**3 + 4.7461_wp * rh**2 - 2.3269_wp * rh - 1.1259_wp
+          IF ( zrh < 0.2_wp .AND. zrh >= 0.1_wp )  THEN
+             nh4cl_hhso4 = 3.2809_wp * zrh - 2.0637_wp
+          ELSEIF ( zrh >= 0.2_wp .AND. zrh < 0.99_wp )  THEN
+             nh4cl_hhso4 = -1.2981_wp * zrh**3 + 4.7461_wp * zrh**2 - 2.3269_wp * zrh - 1.1259_wp
           ENDIF
        ENDIF
 
        IF ( sodium_sulphate > 0.0_wp )  THEN
-          na2so4_hhso4 = 118.87_wp * rh**6 - 358.63_wp * rh**5 + 435.85_wp * rh**4 - 272.88_wp *   &
-                         rh**3 + 94.411_wp * rh**2 - 18.21_wp * rh + 0.45935_wp
+          na2so4_hhso4 = 118.87_wp * zrh**6 - 358.63_wp * zrh**5 + 435.85_wp * zrh**4 - 272.88_wp *   &
+                         zrh**3 + 94.411_wp * zrh**2 - 18.21_wp * zrh + 0.45935_wp
        ENDIF
 
        IF ( sodium_nitrate > 0.0_wp )  THEN
-          IF ( rh < 0.2_wp  .AND.  rh >= 0.1_wp )  THEN
-             nano3_hhso4 = 4.8456_wp * rh - 2.5773_wp
-          ELSEIF ( rh >= 0.2_wp  .AND.  rh < 0.99_wp )  THEN
-             nano3_hhso4 = 0.5964_wp * rh**3 - 0.38967_wp * rh**2 + 1.7918_wp * rh - 1.9691_wp
+          IF ( zrh < 0.2_wp  .AND.  zrh >= 0.1_wp )  THEN
+             nano3_hhso4 = 4.8456_wp * zrh - 2.5773_wp
+          ELSEIF ( zrh >= 0.2_wp  .AND.  zrh < 0.99_wp )  THEN
+             nano3_hhso4 = 0.5964_wp * zrh**3 - 0.38967_wp * zrh**2 + 1.7918_wp * zrh - 1.9691_wp
           ENDIF
        ENDIF
 
        IF ( sodium_chloride > 0.0_wp )  THEN
-          IF ( rh < 0.2_wp )  THEN
-             nacl_hhso4 = 0.51995_wp * rh - 1.3981_wp
-          ELSEIF ( rh >= 0.2_wp  .AND.  rh < 0.99_wp )  THEN
-             nacl_hhso4 = 1.6539_wp * rh - 1.6101_wp
+          IF ( zrh < 0.2_wp )  THEN
+             nacl_hhso4 = 0.51995_wp * zrh - 1.3981_wp
+          ELSEIF ( zrh >= 0.2_wp  .AND.  zrh < 0.99_wp )  THEN
+             nacl_hhso4 = 1.6539_wp * zrh - 1.6101_wp
           ENDIF
        ENDIF
 
@@ -7148,62 +8142,62 @@
                       sodium_sulphate_eq_frac   * na2so4_hhso4 +                                   &
                       sodium_nitrate_eq_frac * nano3_hhso4 + sodium_chloride_eq_frac   * nacl_hhso4
 
-       gamma_hhso4 = EXP( ln_hhso4_act )   ! molal activity coefficient of HHSO4
+       gamma_hhso4 = EXP( MIN( 50.0_wp, ln_hhso4_act ) )   ! molal activity coefficient of HHSO4
 
 !--    H2SO4 (sulphuric acid):
-       IF ( rh >= 0.1_wp  .AND.  rh < 0.9_wp )  THEN
-          binary_h2so4 = 2.4493_wp * rh**2 - 6.2326_wp * rh + 2.1763_wp
-       ELSEIF ( rh >= 0.9_wp  .AND.  rh < 0.98 )  THEN
-          binary_h2so4 = 914.68_wp * rh**3 - 2502.3_wp * rh**2 + 2281.9_wp * rh - 695.11_wp
-       ELSEIF ( rh >= 0.98  .AND.  rh < 0.9999 )  THEN
-          binary_h2so4 = 3.0E-8_wp * rh**4 - 5E-6_wp * rh**3 + 0.0003_wp * rh**2 - 0.0022_wp *     &
-                         rh - 1.1305_wp
+       IF ( zrh >= 0.1_wp  .AND.  zrh < 0.9_wp )  THEN
+          binary_h2so4 = 2.4493_wp * zrh**2 - 6.2326_wp * zrh + 2.1763_wp
+       ELSEIF ( zrh >= 0.9_wp  .AND.  zrh < 0.98 )  THEN
+          binary_h2so4 = 914.68_wp * zrh**3 - 2502.3_wp * zrh**2 + 2281.9_wp * zrh - 695.11_wp
+       ELSEIF ( zrh >= 0.98  .AND.  zrh < 0.9999 )  THEN
+          binary_h2so4 = 3.0E-8_wp * zrh**4 - 5E-6_wp * zrh**3 + 0.0003_wp * zrh**2 - 0.0022_wp *     &
+                         zrh - 1.1305_wp
        ENDIF
 
        IF ( nitric_acid > 0.0_wp )  THEN
-          hno3_h2so4 = - 16.382_wp * rh**5 + 46.677_wp * rh**4 - 54.149_wp * rh**3 + 34.36_wp *    &
-                         rh**2 - 12.54_wp * rh + 2.1368_wp
+          hno3_h2so4 = - 16.382_wp * zrh**5 + 46.677_wp * zrh**4 - 54.149_wp * zrh**3 + 34.36_wp *    &
+                         zrh**2 - 12.54_wp * zrh + 2.1368_wp
        ENDIF
 
        IF ( hydrochloric_acid > 0.0_wp )  THEN
-          hcl_h2so4 = - 14.409_wp * rh**5 + 42.804_wp * rh**4 - 47.24_wp * rh**3 + 24.668_wp *     &
-                        rh**2 - 5.8015_wp * rh + 0.084627_wp
+          hcl_h2so4 = - 14.409_wp * zrh**5 + 42.804_wp * zrh**4 - 47.24_wp * zrh**3 + 24.668_wp *     &
+                        zrh**2 - 5.8015_wp * zrh + 0.084627_wp
        ENDIF
 
        IF ( ammonium_sulphate > 0.0_wp )  THEN
-          nh42so4_h2so4 = 66.71_wp * rh**5 - 187.5_wp * rh**4 + 210.57_wp * rh**3 - 121.04_wp *    &
-                          rh**2 + 39.182_wp * rh - 8.0606_wp
+          nh42so4_h2so4 = 66.71_wp * zrh**5 - 187.5_wp * zrh**4 + 210.57_wp * zrh**3 - 121.04_wp *    &
+                          zrh**2 + 39.182_wp * zrh - 8.0606_wp
        ENDIF
 
        IF ( ammonium_nitrate > 0.0_wp )  THEN
-          nh4no3_h2so4 = - 22.532_wp * rh**4 + 66.615_wp * rh**3 - 74.647_wp * rh**2 + 37.638_wp * &
-                         rh - 6.9711_wp
+          nh4no3_h2so4 = - 22.532_wp * zrh**4 + 66.615_wp * zrh**3 - 74.647_wp * zrh**2 + 37.638_wp * &
+                         zrh - 6.9711_wp
        ENDIF
 
        IF ( ammonium_chloride > 0.0_wp )  THEN
-          IF ( rh >= 0.1_wp  .AND.  rh < 0.2_wp )  THEN
-             nh4cl_h2so4 = - 0.32089_wp * rh + 0.57738_wp
-          ELSEIF ( rh >= 0.2_wp  .AND.  rh < 0.9_wp )  THEN
-             nh4cl_h2so4 = 18.089_wp * rh**5 - 51.083_wp * rh**4 + 50.32_wp * rh**3 - 17.012_wp *  &
-                           rh**2 - 0.93435_wp * rh + 1.0548_wp
-          ELSEIF ( rh >= 0.9_wp  .AND.  rh < 0.99_wp )  THEN
-             nh4cl_h2so4 = - 1.5749_wp * rh + 1.7002_wp
+          IF ( zrh >= 0.1_wp  .AND.  zrh < 0.2_wp )  THEN
+             nh4cl_h2so4 = - 0.32089_wp * zrh + 0.57738_wp
+          ELSEIF ( zrh >= 0.2_wp  .AND.  zrh < 0.9_wp )  THEN
+             nh4cl_h2so4 = 18.089_wp * zrh**5 - 51.083_wp * zrh**4 + 50.32_wp * zrh**3 - 17.012_wp *  &
+                           zrh**2 - 0.93435_wp * zrh + 1.0548_wp
+          ELSEIF ( zrh >= 0.9_wp  .AND.  zrh < 0.99_wp )  THEN
+             nh4cl_h2so4 = - 1.5749_wp * zrh + 1.7002_wp
           ENDIF
        ENDIF
 
        IF ( sodium_sulphate > 0.0_wp )  THEN
-          na2so4_h2so4 = 29.843_wp * rh**4 - 69.417_wp * rh**3 + 61.507_wp * rh**2 - 29.874_wp *   &
-                         rh + 7.7556_wp
+          na2so4_h2so4 = 29.843_wp * zrh**4 - 69.417_wp * zrh**3 + 61.507_wp * zrh**2 - 29.874_wp *   &
+                         zrh + 7.7556_wp
        ENDIF
 
        IF ( sodium_nitrate > 0.0_wp )  THEN
-          nano3_h2so4 = - 122.37_wp * rh**6 + 427.43_wp * rh**5 - 604.68_wp * rh**4 + 443.08_wp *  &
-                        rh**3 - 178.61_wp * rh**2 + 37.242_wp * rh - 1.9564_wp
+          nano3_h2so4 = - 122.37_wp * zrh**6 + 427.43_wp * zrh**5 - 604.68_wp * zrh**4 + 443.08_wp *  &
+                        zrh**3 - 178.61_wp * zrh**2 + 37.242_wp * zrh - 1.9564_wp
        ENDIF
 
        IF ( sodium_chloride > 0.0_wp )  THEN
-          nacl_h2so4 = - 40.288_wp * rh**5 + 115.61_wp * rh**4 - 129.99_wp * rh**3 + 72.652_wp *   &
-                       rh**2 - 22.124_wp * rh + 4.2676_wp
+          nacl_h2so4 = - 40.288_wp * zrh**5 + 115.61_wp * zrh**4 - 129.99_wp * zrh**3 + 72.652_wp *   &
+                       zrh**2 - 22.124_wp * zrh + 4.2676_wp
        ENDIF
 
        ln_h2so4_act = binary_h2so4 + nitric_acid_eq_frac * hno3_h2so4 +                            &
@@ -7214,7 +8208,7 @@
                       sodium_sulphate_eq_frac * na2so4_h2so4 +                                     &
                       sodium_nitrate_eq_frac * nano3_h2so4 + sodium_chloride_eq_frac * nacl_h2so4
 
-       gamma_h2so4 = EXP( ln_h2so4_act )    ! molal activity coefficient
+       gamma_h2so4 = EXP( MIN( 50.0_wp, ln_h2so4_act ) )    ! molal activity coefficient
 !
 !--    Export activity coefficients
        IF ( gamma_h2so4 > 1.0E-10_wp )  THEN
@@ -7224,37 +8218,51 @@
           gamma_out(5) = gamma_h2so4**3 / gamma_hhso4**2
        ENDIF
 !
-!--    Ionic activity coefficient product
-       act_product = gamma_h2so4**3 / gamma_hhso4**2
+!--    Ionic activity coefficient product (guard against underflow)
+       IF ( gamma_hhso4 > 1.0E-30_wp .AND. gamma_h2so4 > 0.0_wp )  THEN
+          act_product = gamma_h2so4**3 / gamma_hhso4**2
+       ELSE
+          act_product = 0.0_wp
+       ENDIF
 !
 !--    Solve the quadratic equation (i.e. x in ax**2 + bx + c = 0)
-       a = 1.0_wp
-       b = -1.0_wp * ( ions(4) + ions(1) + ( ( water_total * 18.0E-3_wp ) /                        &
-           ( 99.0_wp * act_product ) ) )
-       c = ions(4) * ions(1)
-       root1 = ( ( -1.0_wp * b ) + ( ( ( b**2 ) - 4.0_wp * a * c )**0.5_wp ) ) / ( 2.0_wp * a )
-       root2 = ( ( -1.0_wp * b ) - ( ( ( b**2 ) - 4.0_wp * a * c) **0.5_wp ) ) / ( 2.0_wp * a )
+!--    If act_product is negligible, skip bisulphate dissociation (no HSO4- formed)
+       IF ( act_product > 1.0E-30_wp )  THEN
+          a = 1.0_wp
+          b = -1.0_wp * ( ions(4) + ions(1) + ( ( water_total * 18.0E-3_wp ) /                     &
+              ( 99.0_wp * act_product ) ) )
+          c = ions(4) * ions(1)
+          root1 = ( ( -1.0_wp * b ) + ( ( ( b**2 ) - 4.0_wp * a * c )**0.5_wp ) ) / ( 2.0_wp * a )
+          root2 = ( ( -1.0_wp * b ) - ( ( ( b**2 ) - 4.0_wp * a * c) **0.5_wp ) ) / ( 2.0_wp * a )
 
-       IF ( root1 > ions(1)  .OR.  root1 < 0.0_wp )  THEN
-          root1 = 0.0_wp
-       ENDIF
+          IF ( root1 > ions(1)  .OR.  root1 < 0.0_wp )  THEN
+             root1 = 0.0_wp
+          ENDIF
 
-       IF ( root2 > ions(1)  .OR.  root2 < 0.0_wp )  THEN
-          root2 = 0.0_wp
+          IF ( root2 > ions(1)  .OR.  root2 < 0.0_wp )  THEN
+             root2 = 0.0_wp
+          ENDIF
+!
+!--       Calculate the new hydrogen ion, bisulphate ion and sulphate ion
+!--       concentration
+          h_real    = ions(1)
+          so4_real  = ions(4)
+          hso4_real = MAX( root1, root2 )
+          h_real   = ions(1) - hso4_real
+          so4_real = ions(4) - hso4_real
+!
+!--       Recalculate ion molalities
+          ions_mol(1) = h_real    / ( water_total * 18.01528E-3_wp )   ! H+
+          ions_mol(4) = so4_real  / ( water_total * 18.01528E-3_wp )   ! SO4(2-)
+          ions_mol(5) = hso4_real / ( water_total * 18.01528E-3_wp )   ! HSO4(2-)
+       ELSE
+          h_real    = ions(1)
+          hso4_real = 0.0_wp
+          so4_real  = ions(4)
+          ions_mol(1) = ions(1) / ( water_total * 18.01528E-3_wp )
+          ions_mol(4) = ions(4) / ( water_total * 18.01528E-3_wp )
+          ions_mol(5) = 0.0_wp
        ENDIF
-!
-!--    Calculate the new hydrogen ion, bisulphate ion and sulphate ion
-!--    concentration
-       h_real    = ions(1)
-       so4_real  = ions(4)
-       hso4_real = MAX( root1, root2 )
-       h_real   = ions(1) - hso4_real
-       so4_real = ions(4) - hso4_real
-!
-!--    Recalculate ion molalities
-       ions_mol(1) = h_real    / ( water_total * 18.01528E-3_wp )   ! H+
-       ions_mol(4) = so4_real  / ( water_total * 18.01528E-3_wp )   ! SO4(2-)
-       ions_mol(5) = hso4_real / ( water_total * 18.01528E-3_wp )   ! HSO4(2-)
 
        h_out    = h_real
        hso4_out = hso4_real
@@ -7299,73 +8307,73 @@
 !-- a) - ACTIVITY COEFF/VAPOUR PRESSURE - HNO3
     IF ( ions(1) > 0.0_wp  .AND.  ions(6) > 0.0_wp )  THEN
        binary_case = 1
-       IF ( rh > 0.1_wp  .AND.  rh < 0.98_wp )  THEN
+       IF ( zrh > 0.1_wp  .AND.  zrh < 0.98_wp )  THEN
           IF ( binary_case == 1 )  THEN
-             binary_hno3 = 1.8514_wp * rh**3 - 4.6991_wp * rh**2 + 1.5514_wp * rh + 0.90236_wp
+             binary_hno3 = 1.8514_wp * zrh**3 - 4.6991_wp * zrh**2 + 1.5514_wp * zrh + 0.90236_wp
           ELSEIF ( binary_case == 2 )  THEN
-             binary_hno3 = - 1.1751_wp * ( rh**2 ) - 0.53794_wp * rh + 1.2808_wp
+             binary_hno3 = - 1.1751_wp * ( zrh**2 ) - 0.53794_wp * zrh + 1.2808_wp
           ENDIF
-       ELSEIF ( rh >= 0.98_wp  .AND.  rh < 0.9999_wp )  THEN
-          binary_hno3 = 1244.69635941351_wp * rh**3 - 2613.93941099991_wp * rh**2 +                &
-                        1525.0684974546_wp * rh -155.946764059316_wp
+       ELSEIF ( zrh >= 0.98_wp  .AND.  zrh < 0.9999_wp )  THEN
+          binary_hno3 = 1244.69635941351_wp * zrh**3 - 2613.93941099991_wp * zrh**2 +                &
+                        1525.0684974546_wp * zrh -155.946764059316_wp
        ENDIF
 !
 !--    Contributions from other solutes
        full_complexity = 1
        IF ( hydrochloric_acid > 0.0_wp )  THEN   ! HCL
-          IF ( full_complexity == 1  .OR.  rh < 0.4_wp )  THEN
-             hcl_hno3 = 16.051_wp * rh**4 - 44.357_wp * rh**3 + 45.141_wp * rh**2 - 21.638_wp *    &
-                        rh + 4.8182_wp
-          ELSEIF ( full_complexity == 0  .AND.  rh > 0.4_wp )  THEN
-             hcl_hno3 = - 1.5833_wp * rh + 1.5569_wp
+          IF ( full_complexity == 1  .OR.  zrh < 0.4_wp )  THEN
+             hcl_hno3 = 16.051_wp * zrh**4 - 44.357_wp * zrh**3 + 45.141_wp * zrh**2 - 21.638_wp *    &
+                        zrh + 4.8182_wp
+          ELSEIF ( full_complexity == 0  .AND.  zrh > 0.4_wp )  THEN
+             hcl_hno3 = - 1.5833_wp * zrh + 1.5569_wp
           ENDIF
        ENDIF
 
        IF ( sulphuric_acid > 0.0_wp )  THEN   ! H2SO4
-          IF ( full_complexity == 1  .OR.  rh < 0.4_wp )  THEN
-             h2so4_hno3 = - 3.0849_wp * rh**3 + 5.9609_wp * rh**2 - 4.468_wp * rh + 1.5658_wp
-          ELSEIF ( full_complexity == 0  .AND.  rh > 0.4_wp )  THEN
-             h2so4_hno3 = - 0.93473_wp * rh + 0.9363_wp
+          IF ( full_complexity == 1  .OR.  zrh < 0.4_wp )  THEN
+             h2so4_hno3 = - 3.0849_wp * zrh**3 + 5.9609_wp * zrh**2 - 4.468_wp * zrh + 1.5658_wp
+          ELSEIF ( full_complexity == 0  .AND.  zrh > 0.4_wp )  THEN
+             h2so4_hno3 = - 0.93473_wp * zrh + 0.9363_wp
           ENDIF
        ENDIF
 
        IF ( ammonium_sulphate > 0.0_wp )  THEN   ! NH42SO4
-          nh42so4_hno3 = 16.821_wp * rh**3 - 28.391_wp * rh**2 + 18.133_wp * rh - 6.7356_wp
+          nh42so4_hno3 = 16.821_wp * zrh**3 - 28.391_wp * zrh**2 + 18.133_wp * zrh - 6.7356_wp
        ENDIF
 
        IF ( ammonium_nitrate > 0.0_wp )  THEN   ! NH4NO3
-          nh4no3_hno3 = 11.01_wp * rh**3 - 21.578_wp * rh**2 + 14.808_wp * rh - 4.2593_wp
+          nh4no3_hno3 = 11.01_wp * zrh**3 - 21.578_wp * zrh**2 + 14.808_wp * zrh - 4.2593_wp
        ENDIF
 
        IF ( ammonium_chloride > 0.0_wp )  THEN   ! NH4Cl
-          IF ( full_complexity == 1  .OR.  rh <= 0.4_wp )  THEN
-             nh4cl_hno3 = - 1.176_wp * rh**3 + 5.0828_wp * rh**2 - 3.8792_wp * rh - 0.05518_wp
-          ELSEIF ( full_complexity == 0  .AND.  rh > 0.4_wp )  THEN
-             nh4cl_hno3 = 2.6219_wp * rh**2 - 2.2609_wp * rh - 0.38436_wp
+          IF ( full_complexity == 1  .OR.  zrh <= 0.4_wp )  THEN
+             nh4cl_hno3 = - 1.176_wp * zrh**3 + 5.0828_wp * zrh**2 - 3.8792_wp * zrh - 0.05518_wp
+          ELSEIF ( full_complexity == 0  .AND.  zrh > 0.4_wp )  THEN
+             nh4cl_hno3 = 2.6219_wp * zrh**2 - 2.2609_wp * zrh - 0.38436_wp
           ENDIF
        ENDIF
 
        IF ( sodium_sulphate > 0.0_wp )  THEN   ! Na2SO4
-          na2so4_hno3 = 35.504_wp * rh**4 - 80.101_wp * rh**3 + 67.326_wp * rh**2 - 28.461_wp *    &
-                        rh + 5.6016_wp
+          na2so4_hno3 = 35.504_wp * zrh**4 - 80.101_wp * zrh**3 + 67.326_wp * zrh**2 - 28.461_wp *    &
+                        zrh + 5.6016_wp
        ENDIF
 
        IF ( sodium_nitrate > 0.0_wp )  THEN   ! NaNO3
-          IF ( full_complexity == 1 .OR. rh <= 0.4_wp ) THEN
-             nano3_hno3 = 23.659_wp * rh**5 - 66.917_wp * rh**4 + 74.686_wp * rh**3 - 40.795_wp *  &
-                          rh**2 + 10.831_wp * rh - 1.4701_wp
-          ELSEIF ( full_complexity == 0  .AND.  rh > 0.4_wp )  THEN
-             nano3_hno3 = 14.749_wp * rh**4 - 35.237_wp * rh**3 + 31.196_wp * rh**2 - 12.076_wp *  &
-                          rh + 1.3605_wp
+          IF ( full_complexity == 1 .OR. zrh <= 0.4_wp ) THEN
+             nano3_hno3 = 23.659_wp * zrh**5 - 66.917_wp * zrh**4 + 74.686_wp * zrh**3 - 40.795_wp *  &
+                          zrh**2 + 10.831_wp * zrh - 1.4701_wp
+          ELSEIF ( full_complexity == 0  .AND.  zrh > 0.4_wp )  THEN
+             nano3_hno3 = 14.749_wp * zrh**4 - 35.237_wp * zrh**3 + 31.196_wp * zrh**2 - 12.076_wp *  &
+                          zrh + 1.3605_wp
           ENDIF
        ENDIF
 
        IF ( sodium_chloride > 0.0_wp )  THEN   ! NaCl
-          IF ( full_complexity == 1  .OR.  rh <= 0.4_wp )  THEN
-             nacl_hno3 = 13.682_wp * rh**4 - 35.122_wp * rh**3 + 33.397_wp * rh**2 - 14.586_wp *   &
-                         rh + 2.6276_wp
-          ELSEIF ( full_complexity == 0  .AND.  rh > 0.4_wp )  THEN
-             nacl_hno3 = 1.1882_wp * rh**3 - 1.1037_wp * rh**2 - 0.7642_wp * rh + 0.6671_wp
+          IF ( full_complexity == 1  .OR.  zrh <= 0.4_wp )  THEN
+             nacl_hno3 = 13.682_wp * zrh**4 - 35.122_wp * zrh**3 + 33.397_wp * zrh**2 - 14.586_wp *   &
+                         zrh + 2.6276_wp
+          ELSEIF ( full_complexity == 0  .AND.  zrh > 0.4_wp )  THEN
+             nacl_hno3 = 1.1882_wp * zrh**3 - 1.1037_wp * zrh**2 - 0.7642_wp * zrh + 0.6671_wp
           ENDIF
        ENDIF
 
@@ -7377,7 +8385,7 @@
                      sodium_sulphate_eq_frac * na2so4_hno3 +                                       &
                      sodium_nitrate_eq_frac * nano3_hno3 + sodium_chloride_eq_frac   * nacl_hno3
 
-       gamma_hno3   = EXP( ln_hno3_act )   ! Molal activity coefficient of HNO3
+       gamma_hno3   = EXP( MIN( 50.0_wp, ln_hno3_act ) )   ! Molal activity coefficient of HNO3
        gamma_out(1) = gamma_hno3
 !
 !--    Partial pressure calculation
@@ -7392,60 +8400,60 @@
     IF ( ions(2) > 0.0_wp  .AND.  ions_mol(1) > 0.0_wp )  THEN
 !
 !--    NH4HSO4:
-       binary_nh4hso4 = 56.907_wp * rh**6 - 155.32_wp * rh**5 + 142.94_wp * rh**4 - 32.298_wp *    &
-                        rh**3 - 27.936_wp * rh**2 + 19.502_wp * rh - 4.2618_wp
+       binary_nh4hso4 = 56.907_wp * zrh**6 - 155.32_wp * zrh**5 + 142.94_wp * zrh**4 - 32.298_wp *    &
+                        zrh**3 - 27.936_wp * zrh**2 + 19.502_wp * zrh - 4.2618_wp
        IF ( nitric_acid > 0.0_wp)  THEN   ! HNO3
-          hno3_nh4hso4 = 104.8369_wp * rh**8 - 288.8923_wp * rh**7 + 129.3445_wp * rh**6 +         &
-                         373.0471_wp * rh**5 - 571.0385_wp * rh**4 + 326.3528_wp * rh**3 -         &
-                         74.169_wp * rh**2 - 2.4999_wp * rh + 3.17_wp
+          hno3_nh4hso4 = 104.8369_wp * zrh**8 - 288.8923_wp * zrh**7 + 129.3445_wp * zrh**6 +         &
+                         373.0471_wp * zrh**5 - 571.0385_wp * zrh**4 + 326.3528_wp * zrh**3 -         &
+                         74.169_wp * zrh**2 - 2.4999_wp * zrh + 3.17_wp
        ENDIF
 
        IF ( hydrochloric_acid > 0.0_wp)  THEN   ! HCL
-          hcl_nh4hso4 = - 7.9133_wp * rh**8 + 126.6648_wp * rh**7 - 460.7425_wp * rh**6 +          &
-                         731.606_wp * rh**5 - 582.7467_wp * rh**4 + 216.7197_wp * rh**3 -          &
-                         11.3934_wp * rh**2 - 17.7728_wp  * rh + 5.75_wp
+          hcl_nh4hso4 = - 7.9133_wp * zrh**8 + 126.6648_wp * zrh**7 - 460.7425_wp * zrh**6 +          &
+                         731.606_wp * zrh**5 - 582.7467_wp * zrh**4 + 216.7197_wp * zrh**3 -          &
+                         11.3934_wp * zrh**2 - 17.7728_wp  * zrh + 5.75_wp
        ENDIF
 
        IF ( sulphuric_acid > 0.0_wp)  THEN   ! H2SO4
-          h2so4_nh4hso4 = 195.981_wp * rh**8 - 779.2067_wp * rh**7 + 1226.3647_wp * rh**6 -        &
-                         964.0261_wp * rh**5 + 391.7911_wp * rh**4 - 84.1409_wp  * rh**3 +         &
-                          20.0602_wp * rh**2 - 10.2663_wp  * rh + 3.5817_wp
+          h2so4_nh4hso4 = 195.981_wp * zrh**8 - 779.2067_wp * zrh**7 + 1226.3647_wp * zrh**6 -        &
+                         964.0261_wp * zrh**5 + 391.7911_wp * zrh**4 - 84.1409_wp  * zrh**3 +         &
+                          20.0602_wp * zrh**2 - 10.2663_wp  * zrh + 3.5817_wp
        ENDIF
 
        IF ( ammonium_sulphate > 0.0_wp)  THEN   ! NH42SO4
-          nh42so4_nh4hso4 = 617.777_wp * rh**8 -  2547.427_wp * rh**7 + 4361.6009_wp * rh**6 -     &
-                           4003.162_wp * rh**5 + 2117.8281_wp * rh**4 - 640.0678_wp * rh**3 +      &
-                            98.0902_wp * rh**2 -    2.2615_wp * rh - 2.3811_wp
+          nh42so4_nh4hso4 = 617.777_wp * zrh**8 -  2547.427_wp * zrh**7 + 4361.6009_wp * zrh**6 -     &
+                           4003.162_wp * zrh**5 + 2117.8281_wp * zrh**4 - 640.0678_wp * zrh**3 +      &
+                            98.0902_wp * zrh**2 -    2.2615_wp * zrh - 2.3811_wp
        ENDIF
 
        IF ( ammonium_nitrate > 0.0_wp)  THEN   ! NH4NO3
-          nh4no3_nh4hso4 = - 104.4504_wp * rh**8 + 539.5921_wp * rh**7 - 1157.0498_wp * rh**6 +    &
-                            1322.4507_wp * rh**5 - 852.2475_wp * rh**4 + 298.3734_wp * rh**3 -     &
-                              47.0309_wp * rh**2 +    1.297_wp * rh - 0.8029_wp
+          nh4no3_nh4hso4 = - 104.4504_wp * zrh**8 + 539.5921_wp * zrh**7 - 1157.0498_wp * zrh**6 +    &
+                            1322.4507_wp * zrh**5 - 852.2475_wp * zrh**4 + 298.3734_wp * zrh**3 -     &
+                              47.0309_wp * zrh**2 +    1.297_wp * zrh - 0.8029_wp
        ENDIF
 
        IF ( ammonium_chloride > 0.0_wp)  THEN   ! NH4Cl
-          nh4cl_nh4hso4 = 258.1792_wp * rh**8 - 1019.3777_wp * rh**7 + 1592.8918_wp * rh**6 -      &
-                         1221.0726_wp * rh**5 +  442.2548_wp * rh**4 -   43.6278_wp * rh**3 -      &
-                            7.5282_wp * rh**2 -    3.8459_wp * rh + 2.2728_wp
+          nh4cl_nh4hso4 = 258.1792_wp * zrh**8 - 1019.3777_wp * zrh**7 + 1592.8918_wp * zrh**6 -      &
+                         1221.0726_wp * zrh**5 +  442.2548_wp * zrh**4 -   43.6278_wp * zrh**3 -      &
+                            7.5282_wp * zrh**2 -    3.8459_wp * zrh + 2.2728_wp
        ENDIF
 
        IF ( sodium_sulphate > 0.0_wp)  THEN   ! Na2SO4
-          na2so4_nh4hso4 = 225.4238_wp * rh**8 - 732.4113_wp * rh**7 + 843.7291_wp * rh**6 -       &
-                           322.7328_wp * rh**5 -  88.6252_wp * rh**4 +  72.4434_wp * rh**3 +       &
-                            22.9252_wp * rh**2 -  25.3954_wp * rh + 4.6971_wp
+          na2so4_nh4hso4 = 225.4238_wp * zrh**8 - 732.4113_wp * zrh**7 + 843.7291_wp * zrh**6 -       &
+                           322.7328_wp * zrh**5 -  88.6252_wp * zrh**4 +  72.4434_wp * zrh**3 +       &
+                            22.9252_wp * zrh**2 -  25.3954_wp * zrh + 4.6971_wp
        ENDIF
 
        IF ( sodium_nitrate > 0.0_wp)  THEN   ! NaNO3
-          nano3_nh4hso4 = 96.1348_wp * rh**8 - 341.6738_wp * rh**7 + 406.5314_wp * rh**6 -         &
-                          98.5777_wp * rh**5 - 172.8286_wp * rh**4 + 149.3151_wp * rh**3 -         &
-                          38.9998_wp * rh**2 -   0.2251_wp * rh + 0.4953_wp
+          nano3_nh4hso4 = 96.1348_wp * zrh**8 - 341.6738_wp * zrh**7 + 406.5314_wp * zrh**6 -         &
+                          98.5777_wp * zrh**5 - 172.8286_wp * zrh**4 + 149.3151_wp * zrh**3 -         &
+                          38.9998_wp * zrh**2 -   0.2251_wp * zrh + 0.4953_wp
        ENDIF
 
        IF ( sodium_chloride > 0.0_wp)  THEN   ! NaCl
-          nacl_nh4hso4 = 91.7856_wp * rh**8 - 316.6773_wp * rh**7 + 358.2703_wp * rh**6 -          &
-                         68.9142_wp * rh**5 - 156.5031_wp * rh**4 + 116.9592_wp * rh**3 -          &
-                         22.5271_wp * rh**2 - 3.7716_wp * rh + 1.56_wp
+          nacl_nh4hso4 = 91.7856_wp * zrh**8 - 316.6773_wp * zrh**7 + 358.2703_wp * zrh**6 -          &
+                         68.9142_wp * zrh**5 - 156.5031_wp * zrh**4 + 116.9592_wp * zrh**3 -          &
+                         22.5271_wp * zrh**2 - 3.7716_wp * zrh + 1.56_wp
        ENDIF
 
        ln_nh4hso4_act = binary_nh4hso4 + nitric_acid_eq_frac * hno3_nh4hso4 +                      &
@@ -7458,7 +8466,7 @@
                         sodium_nitrate_eq_frac * nano3_nh4hso4 +                                   &
                         sodium_chloride_eq_frac * nacl_nh4hso4
 
-       gamma_nh4hso4 = EXP( ln_nh4hso4_act ) ! molal act. coefficient of NH4HSO4
+       gamma_nh4hso4 = EXP( MIN( 50.0_wp, ln_nh4hso4_act ) ) ! molal act. coefficient of NH4HSO4
 !
 !--    Molal activity coefficient of NO3-
        gamma_out(6)  = gamma_nh4hso4
@@ -7489,72 +8497,72 @@
 !-- c) - ACTIVITY COEFF/VAPOUR PRESSURE - HCL
     IF ( ions(1) > 0.0_wp  .AND.  ions(7) > 0.0_wp )  THEN
        binary_case = 1
-       IF ( rh > 0.1_wp  .AND.  rh < 0.98 )  THEN
+       IF ( zrh > 0.1_wp  .AND.  zrh < 0.98 )  THEN
           IF ( binary_case == 1 )  THEN
-             binary_hcl = - 5.0179_wp * rh**3 + 9.8816_wp * rh**2 - 10.789_wp * rh + 5.4737_wp
+             binary_hcl = - 5.0179_wp * zrh**3 + 9.8816_wp * zrh**2 - 10.789_wp * zrh + 5.4737_wp
           ELSEIF ( binary_case == 2 )  THEN
-             binary_hcl = - 4.6221_wp * rh + 4.2633_wp
+             binary_hcl = - 4.6221_wp * zrh + 4.2633_wp
           ENDIF
-       ELSEIF ( rh >= 0.98_wp  .AND.  rh < 0.9999_wp )  THEN
-          binary_hcl = 775.6111008626_wp * rh**3 - 2146.01320888771_wp * rh**2 +                   &
-                       1969.01979670259_wp *  rh - 598.878230033926_wp
+       ELSEIF ( zrh >= 0.98_wp  .AND.  zrh < 0.9999_wp )  THEN
+          binary_hcl = 775.6111008626_wp * zrh**3 - 2146.01320888771_wp * zrh**2 +                   &
+                       1969.01979670259_wp *  zrh - 598.878230033926_wp
        ENDIF
     ENDIF
 
     IF ( nitric_acid > 0.0_wp )  THEN   ! HNO3
-       IF ( full_complexity == 1  .OR.  rh <= 0.4_wp )  THEN
-          hno3_hcl = 9.6256_wp * rh**4 - 26.507_wp * rh**3 + 27.622_wp * rh**2 - 12.958_wp * rh +  &
+       IF ( full_complexity == 1  .OR.  zrh <= 0.4_wp )  THEN
+          hno3_hcl = 9.6256_wp * zrh**4 - 26.507_wp * zrh**3 + 27.622_wp * zrh**2 - 12.958_wp * zrh +  &
                      2.2193_wp
-       ELSEIF ( full_complexity == 0  .AND.  rh > 0.4_wp )  THEN
-          hno3_hcl = 1.3242_wp * rh**2 - 1.8827_wp * rh + 0.55706_wp
+       ELSEIF ( full_complexity == 0  .AND.  zrh > 0.4_wp )  THEN
+          hno3_hcl = 1.3242_wp * zrh**2 - 1.8827_wp * zrh + 0.55706_wp
        ENDIF
     ENDIF
 
     IF ( sulphuric_acid > 0.0_wp )  THEN   ! H2SO4
-       IF ( full_complexity == 1  .OR.  rh <= 0.4 )  THEN
-          h2so4_hcl = 1.4406_wp * rh**3 - 2.7132_wp * rh**2 + 1.014_wp * rh + 0.25226_wp
-       ELSEIF ( full_complexity == 0 .AND. rh > 0.4_wp ) THEN
-          h2so4_hcl = 0.30993_wp * rh**2 - 0.99171_wp * rh + 0.66913_wp
+       IF ( full_complexity == 1  .OR.  zrh <= 0.4 )  THEN
+          h2so4_hcl = 1.4406_wp * zrh**3 - 2.7132_wp * zrh**2 + 1.014_wp * zrh + 0.25226_wp
+       ELSEIF ( full_complexity == 0 .AND. zrh > 0.4_wp ) THEN
+          h2so4_hcl = 0.30993_wp * zrh**2 - 0.99171_wp * zrh + 0.66913_wp
        ENDIF
     ENDIF
 
     IF ( ammonium_sulphate > 0.0_wp )  THEN   ! NH42SO4
-       nh42so4_hcl = 22.071_wp * rh**3 - 40.678_wp * rh**2 + 27.893_wp * rh - 9.4338_wp
+       nh42so4_hcl = 22.071_wp * zrh**3 - 40.678_wp * zrh**2 + 27.893_wp * zrh - 9.4338_wp
     ENDIF
 
     IF ( ammonium_nitrate > 0.0_wp )  THEN   ! NH4NO3
-       nh4no3_hcl = 19.935_wp * rh**3 - 42.335_wp * rh**2 + 31.275_wp * rh - 8.8675_wp
+       nh4no3_hcl = 19.935_wp * zrh**3 - 42.335_wp * zrh**2 + 31.275_wp * zrh - 8.8675_wp
     ENDIF
 
     IF ( ammonium_chloride > 0.0_wp )  THEN   ! NH4Cl
-       IF ( full_complexity == 1  .OR.  rh <= 0.4_wp )  THEN
-          nh4cl_hcl = 2.8048_wp * rh**3 - 4.3182_wp * rh**2 + 3.1971_wp * rh - 1.6824_wp
-       ELSEIF ( full_complexity == 0  .AND.  rh > 0.4_wp )  THEN
-          nh4cl_hcl = 1.2304_wp * rh**2 - 0.18262_wp * rh - 1.0643_wp
+       IF ( full_complexity == 1  .OR.  zrh <= 0.4_wp )  THEN
+          nh4cl_hcl = 2.8048_wp * zrh**3 - 4.3182_wp * zrh**2 + 3.1971_wp * zrh - 1.6824_wp
+       ELSEIF ( full_complexity == 0  .AND.  zrh > 0.4_wp )  THEN
+          nh4cl_hcl = 1.2304_wp * zrh**2 - 0.18262_wp * zrh - 1.0643_wp
        ENDIF
     ENDIF
 
     IF ( sodium_sulphate > 0.0_wp )  THEN   ! Na2SO4
-       na2so4_hcl = 36.104_wp * rh**4 - 78.658_wp * rh**3 + 63.441_wp * rh**2 - 26.727_wp * rh +   &
+       na2so4_hcl = 36.104_wp * zrh**4 - 78.658_wp * zrh**3 + 63.441_wp * zrh**2 - 26.727_wp * zrh +   &
                     5.7007_wp
     ENDIF
 
     IF ( sodium_nitrate > 0.0_wp )  THEN   ! NaNO3
-       IF ( full_complexity == 1  .OR.  rh <= 0.4_wp )  THEN
-          nano3_hcl = 54.471_wp * rh**5 - 159.42_wp * rh**4 + 180.25_wp * rh**3 - 98.176_wp * rh**2&
-                      + 25.309_wp * rh - 2.4275_wp
-       ELSEIF ( full_complexity == 0  .AND.  rh > 0.4_wp )  THEN
-          nano3_hcl = 21.632_wp * rh**4 - 53.088_wp * rh**3 + 47.285_wp * rh**2 - 18.519_wp * rh   &
+       IF ( full_complexity == 1  .OR.  zrh <= 0.4_wp )  THEN
+          nano3_hcl = 54.471_wp * zrh**5 - 159.42_wp * zrh**4 + 180.25_wp * zrh**3 - 98.176_wp * zrh**2&
+                      + 25.309_wp * zrh - 2.4275_wp
+       ELSEIF ( full_complexity == 0  .AND.  zrh > 0.4_wp )  THEN
+          nano3_hcl = 21.632_wp * zrh**4 - 53.088_wp * zrh**3 + 47.285_wp * zrh**2 - 18.519_wp * zrh   &
                       + 2.6846_wp
        ENDIF
     ENDIF
 
     IF ( sodium_chloride > 0.0_wp )  THEN   ! NaCl
-       IF ( full_complexity == 1  .OR.  rh <= 0.4_wp )  THEN
-          nacl_hcl = 5.4138_wp * rh**4 - 12.079_wp * rh**3 + 9.627_wp * rh**2 - 3.3164_wp * rh +   &
+       IF ( full_complexity == 1  .OR.  zrh <= 0.4_wp )  THEN
+          nacl_hcl = 5.4138_wp * zrh**4 - 12.079_wp * zrh**3 + 9.627_wp * zrh**2 - 3.3164_wp * zrh +   &
                      0.35224_wp
-       ELSEIF ( full_complexity == 0  .AND.  rh > 0.4_wp )  THEN
-          nacl_hcl = 2.432_wp * rh**3 - 4.3453_wp * rh**2 + 2.3834_wp * rh - 0.4762_wp
+       ELSEIF ( full_complexity == 0  .AND.  zrh > 0.4_wp )  THEN
+          nacl_hcl = 2.432_wp * zrh**3 - 4.3453_wp * zrh**2 + 2.3834_wp * zrh - 0.4762_wp
        ENDIF
     ENDIF
 
@@ -7563,20 +8571,25 @@
                  ammonium_chloride_eq_frac * nh4cl_hcl + sodium_sulphate_eq_frac * na2so4_hcl +    &
                  sodium_nitrate_eq_frac    * nano3_hcl + sodium_chloride_eq_frac   * nacl_hcl
 
-     gamma_hcl    = EXP( ln_HCL_act )   ! Molal activity coefficient
+     gamma_hcl    = EXP( MIN( 50.0_wp, ln_HCL_act ) )   ! Molal activity coefficient
      gamma_out(2) = gamma_hcl
 !
 !--  Equilibrium constant after Wagman et al. (1982) (and NIST database)
      k_hcl = 2E6_wp * EXP( 9000.0_wp * henrys_temp_dep )
 
-     press_hcl = ( ions_mol(1) * ions_mol(7) * gamma_hcl**2 ) / k_hcl
+     IF ( gamma_hcl > 1.0E-30_wp )  THEN
+        press_hcl = ( ions_mol(1) * ions_mol(7) * gamma_hcl**2 ) / k_hcl
+     ELSE
+        press_hcl = 0.0_wp
+     ENDIF
 !
 !-- 5) Ion molility output
     mols_out = ions_mol
 
  END SUBROUTINE inorganic_pdfite
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Update the particle size distribution. Put particles into corrects bins.
@@ -7588,7 +8601,7 @@
 !> the particles in the new bin, which then get a new diameter.
 !
 !> Moving-centre method minimises numerical diffusion.
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE distr_update( paero )
 
     IMPLICIT NONE
@@ -7607,9 +8620,10 @@
     REAL(wp) ::  zvpart  !< particle volume (m3)
     REAL(wp) ::  zvrat   !< volume ratio of a size bin
 
-    real(wp), dimension(nbins_aerosol) ::  dummy
+    REAL(wp), DIMENSION(nbins_aerosol) ::  dummy
 
     TYPE(t_section), DIMENSION(nbins_aerosol), INTENT(inout) ::  paero !< aerosol properties
+
 
     zvpart      = 0.0_wp
     zvfrac      = 0.0_wp
@@ -7632,7 +8646,7 @@
              IF ( ib == end_subrange_2a )  CYCLE
 !
 !--          Dry volume
-             zvpart = SUM( paero(ib)%volc(1:7) ) / paero(ib)%numc
+             zvpart = SUM( paero(ib)%volc(1:maxspec) ) / paero(ib)%numc
 !
 !--          Smallest bin cannot decrease
              IF ( paero(ib)%vlolim > zvpart  .AND.  ib == start_subrange_1a ) CYCLE
@@ -7677,8 +8691,8 @@
 !--          Volume fraction to be moved to the larger bin
              zvfrac = MIN( 0.99_wp, znfrac * zvexc / zvpart )
              IF ( zvfrac < 0.0_wp )  THEN
-                message_string = 'Error: zvfrac < 0'
-                CALL message( 'salsa_mod: distr_update', 'PA0624', 1, 2, 0, 6, 0 )
+                message_string = 'error: zvfrac < 0'
+                CALL message( 'salsa_mod: distr_update', 'SAL0036', 1, 2, 0, 6, 0 )
              ENDIF
 !
 !--          Update bin
@@ -7686,9 +8700,9 @@
 !
 !--          Volume (cm3/cm3)
              paero(mm)%volc(:) = paero(mm)%volc(:) + znfrac * paero(ib)%numc * zvexc *             &
-                                 paero(ib)%volc(:) / SUM( paero(ib)%volc(1:7) )
+                                 paero(ib)%volc(:) / SUM( paero(ib)%volc(1:maxspec) )
              paero(ib)%volc(:) = paero(ib)%volc(:) - znfrac * paero(ib)%numc * zvexc *             &
-                                 paero(ib)%volc(:) / SUM( paero(ib)%volc(1:7) )
+                                 paero(ib)%volc(:) / SUM( paero(ib)%volc(1:maxspec) )
 
 !--          Number concentration (#/m3)
              paero(mm)%numc = paero(mm)%numc + znfrac * paero(ib)%numc
@@ -7697,7 +8711,7 @@
           ENDIF     ! nclim
 
           IF ( paero(ib)%numc > nclim )   THEN
-             zvpart = SUM( paero(ib)%volc(1:7) ) / paero(ib)%numc  ! Note: dry volume!
+             zvpart = SUM( paero(ib)%volc(1:maxspec) ) / paero(ib)%numc  ! Note: dry volume!
              within_bins = ( paero(ib)%vlolim < zvpart  .AND. zvpart < paero(ib)%vhilim )
           ENDIF
 
@@ -7705,26 +8719,28 @@
 
        counti = counti + 1
        IF ( counti > 100 )  THEN
-          message_string = 'Error: Aerosol bin update not converged'
-          CALL message( 'salsa_mod: distr_update', 'PA0625', 1, 2, 0, 6, 0 )
+          message_string = 'aerosol bin update not converged'
+          CALL message( 'salsa_mod: distr_update', 'SAL0037', 1, 2, 0, 6, 0 )
        ENDIF
 
     ENDDO ! - within bins
 
  END SUBROUTINE distr_update
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> salsa_diagnostics: Update properties for the current timestep:
 !>
 !> Juha Tonttila, FMI, 2014
 !> Tomi Raatikainen, FMI, 2016
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_diagnostics( i, j )
 
-    USE cpulog,                                                                &
-        ONLY:  cpu_log, log_point_s
+    USE cpulog,                                                                                    &
+        ONLY:  cpu_log,                                                                            &
+               log_point_s
 
     IMPLICIT NONE
 
@@ -7742,17 +8758,26 @@
     REAL(wp), DIMENSION(nzb:nzt+1) ::  in_adn        !< air density (kg/m3)
     REAL(wp), DIMENSION(nzb:nzt+1) ::  in_p          !< pressure
     REAL(wp), DIMENSION(nzb:nzt+1) ::  in_t          !< temperature (K)
-    REAL(wp), DIMENSION(nzb:nzt+1) ::  mcsum         !< sum of mass concentration
-    REAL(wp), DIMENSION(nzb:nzt+1) ::  ppm_to_nconc  !< Conversion factor: ppm to #/m3
-    REAL(wp), DIMENSION(nzb:nzt+1) ::  zddry         !< particle dry diameter
-    REAL(wp), DIMENSION(nzb:nzt+1) ::  zvol          !< particle volume
+    REAL(wp), DIMENSION(nzb:nzt+1) ::  flag_zddry_tra !< flag to mask zddry for traffic
+    REAL(wp), DIMENSION(nzb:nzt+1) ::  mcsum          !< sum of mass concentration
+    REAL(wp), DIMENSION(nzb:nzt+1) ::  mcsum_tra      !< sum of traffic mass concentration
+    REAL(wp), DIMENSION(nzb:nzt+1) ::  ppm_to_nconc   !< Conversion factor: ppm to #/m3
+    REAL(wp), DIMENSION(nzb:nzt+1) ::  zddry          !< particle dry diameter
+    REAL(wp), DIMENSION(nzb:nzt+1) ::  zddry_tra      !< traffic particle dry diameter
+    REAL(wp), DIMENSION(nzb:nzt+1) ::  zvol           !< particle volume
+    REAL(wp), DIMENSION(nzb:nzt+1) ::  zvol_tra       !< traffic particle volume
 
-    flag_zddry   = 0.0_wp
-    in_adn       = 0.0_wp
-    in_p         = 0.0_wp
-    in_t         = 0.0_wp
-    ppm_to_nconc = 1.0_wp
-    zddry        = 0.0_wp
+
+    flag_zddry      = 0.0_wp
+    flag_zddry_tra  = 0.0_wp
+    in_adn          = 0.0_wp
+    in_p            = 0.0_wp
+    in_t            = 0.0_wp
+    mcsum_tra       = 0.0_wp
+    ppm_to_nconc    = 1.0_wp
+    zddry           = 0.0_wp
+    zddry_tra       = 0.0_wp
+    zvol_tra        = 0.0_wp
     zvol         = 0.0_wp
 
     !$OMP MASTER
@@ -7795,6 +8820,28 @@
           ENDDO
        ENDIF
 !
+!--    Also clip and check traffic (pop=2) arrays
+       IF ( ALLOCATED( aerosol_number_tra ) )  THEN
+       aerosol_number_tra(ib)%conc(:,j,i) = MAX( nclim, aerosol_number_tra(ib)%conc(:,j,i) ) * flag
+       mcsum_tra = 0.0_wp
+       DO  ic = 1, ncomponents_mass
+          icc = ( ic - 1 ) * nbins_aerosol + ib
+          mcsum_tra = mcsum_tra + aerosol_mass_tra(icc)%conc(:,j,i) * flag
+          aerosol_mass_tra(icc)%conc(:,j,i) = MAX( mclim, aerosol_mass_tra(icc)%conc(:,j,i) ) * flag
+       ENDDO
+       IF ( ANY( aerosol_number_tra(ib)%conc(:,j,i) > nclim  .AND. mcsum_tra <= 0.0_wp ) )  THEN
+          DO  k = nzb+1, nzt
+             IF ( aerosol_number_tra(ib)%conc(k,j,i) >= nclim  .AND. mcsum_tra(k) <= 0.0_wp )  THEN
+                aerosol_number_tra(ib)%conc(k,j,i) = nclim * flag(k)
+                DO  ic = 1, ncomponents_mass
+                   icc = ( ic - 1 ) * nbins_aerosol + ib
+                   aerosol_mass_tra(icc)%conc(k,j,i) = mclim * flag(k)
+                ENDDO
+             ENDIF
+          ENDDO
+       ENDIF
+       ENDIF
+!
 !--    Update aerosol particle radius
        CALL bin_mixrat( 'dry', ib, i, j, zvol )
        zvol = zvol / arhoh2so4    ! Why on sulphate?
@@ -7804,7 +8851,7 @@
        flag_zddry = MERGE( 1.0_wp, 0.0_wp, ( zddry < 1.0E-10_wp  .AND.                             &
                            aerosol_number(ib)%conc(:,j,i) > nclim ) )
 !
-!--    Volatile species to the gas phase
+!--    Volatile species to the gas phase (non-traffic, using flag_zddry)
        IF ( index_so4 > 0 .AND. lscndgas )  THEN
           ic = ( index_so4 - 1 ) * nbins_aerosol + ib
           IF ( salsa_gases_from_chem )  THEN
@@ -7862,6 +8909,73 @@
        ENDDO
        aerosol_number(ib)%conc(:,j,i) = MERGE( nclim * flag, aerosol_number(ib)%conc(:,j,i),       &
                                                flag_zddry > 0.0_wp )
+!
+!--    Traffic-specific small particle handling (only if _tra arrays are allocated)
+       IF ( ALLOCATED( aerosol_number_tra ) )  THEN
+       zvol_tra = 0.0_wp
+       DO  ic = 1, ncomponents_mass - 1   ! exclude water for dry volume
+          icc = ( ic - 1 ) * nbins_aerosol + ib
+          zvol_tra = zvol_tra + aerosol_mass_tra(icc)%conc(:,j,i)
+       ENDDO
+       zvol_tra = zvol_tra / arhoh2so4
+       zddry_tra = ( zvol_tra / MAX( nclim, aerosol_number_tra(ib)%conc(:,j,i) ) / api6 )**0.33333333_wp
+       flag_zddry_tra = MERGE( 1.0_wp, 0.0_wp, ( zddry_tra < 1.0E-10_wp  .AND.                         &
+                             aerosol_number_tra(ib)%conc(:,j,i) > nclim ) )
+!
+!--    Traffic volatile species to the gas phase (using traffic-specific flag)
+       IF ( is_traffic )  THEN
+       IF ( index_oc > 0 .AND. lscndgas )  THEN
+          ic = ( index_oc - 1 ) * nbins_aerosol + ib
+          IF ( salsa_gases_from_chem )  THEN
+             ig = gas_index_chem(9)
+             chem_species(ig)%conc(:,j,i) = chem_species(ig)%conc(:,j,i) +                         &
+                                            aerosol_mass_tra(ic)%conc(:,j,i) * avo * flag_zddry_tra /  &
+                                            ( amoc * ppm_to_nconc ) * flag
+          ELSE
+             salsa_gas(9)%conc(:,j,i) = salsa_gas(9)%conc(:,j,i) + aerosol_mass_tra(ic)%conc(:,j,i) /  &
+                                        amoc * avo * flag_zddry_tra * flag
+          ENDIF
+       ENDIF
+       IF ( index_no > 0 .AND. lscndgas )  THEN
+          ic = ( index_no - 1 ) * nbins_aerosol + ib
+          IF ( salsa_gases_from_chem )  THEN
+             ig = gas_index_chem(7)
+             chem_species(ig)%conc(:,j,i) = chem_species(ig)%conc(:,j,i) +                         &
+                                            aerosol_mass_tra(ic)%conc(:,j,i) * avo * flag_zddry_tra /  &
+                                            ( amhno3 * ppm_to_nconc ) * flag
+          ELSE
+             salsa_gas(7)%conc(:,j,i) = salsa_gas(7)%conc(:,j,i) + aerosol_mass_tra(ic)%conc(:,j,i) /  &
+                                        amhno3 * avo * flag_zddry_tra * flag
+          ENDIF
+       ENDIF
+       IF ( index_nh > 0 .AND. lscndgas )  THEN
+          ic = ( index_nh - 1 ) * nbins_aerosol + ib
+          IF ( salsa_gases_from_chem )  THEN
+             ig = gas_index_chem(8)
+             chem_species(ig)%conc(:,j,i) = chem_species(ig)%conc(:,j,i) +                         &
+                                            aerosol_mass_tra(ic)%conc(:,j,i) * avo * flag_zddry_tra /  &
+                                            ( amnh3 * ppm_to_nconc ) * flag
+          ELSE
+             salsa_gas(8)%conc(:,j,i) = salsa_gas(8)%conc(:,j,i) + aerosol_mass_tra(ic)%conc(:,j,i) /  &
+                                        amnh3 * avo * flag_zddry_tra * flag
+          ENDIF
+       ENDIF
+       ENDIF
+! MODIFICATION: Added gas phase conversion for new trace metal species (if they become volatile)
+! Note: By default, trace metals are considered non-volatile and will not evaporate.
+! This section can be extended if volatility is added later.
+
+!
+!--    Also handle small traffic (pop=2) particles using pre-computed flag_zddry_tra
+       DO  ic = 1, ncomponents_mass
+          icc = ( ic - 1 ) * nbins_aerosol + ib
+          aerosol_mass_tra(icc)%conc(:,j,i) = MERGE( mclim * flag, aerosol_mass_tra(icc)%conc(:,j,i),  &
+                                                     flag_zddry_tra > 0.0_wp )
+       ENDDO
+       aerosol_number_tra(ib)%conc(:,j,i) = MERGE( nclim * flag, aerosol_number_tra(ib)%conc(:,j,i), &
+                                                   flag_zddry_tra > 0.0_wp )
+       ENDIF  ! ALLOCATED( aerosol_number_tra )
+!
        ra_dry(:,j,i,ib) = MAX( 1.0E-10_wp, 0.5_wp * zddry )
 
     ENDDO
@@ -7878,13 +8992,12 @@
  END SUBROUTINE salsa_diagnostics
 
 
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Call for all grid points
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_actions( location )
-
 
     CHARACTER (LEN=*), INTENT(IN) ::  location !< call location string
 
@@ -7894,6 +9007,10 @@
 
           IF ( ws_scheme_sca )  sums_salsa_ws_l = 0.0_wp
 
+       CASE ( 'update_emission_sources' )
+
+          CALL salsa_emission_update
+
        CASE DEFAULT
           CONTINUE
 
@@ -7902,52 +9019,52 @@
  END SUBROUTINE salsa_actions
 
 
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
-!> Call for grid points i,j
-!------------------------------------------------------------------------------!
-
+!> Call for grid points i,j. Only relevant for cache-optimized module-specific actions while in
+!> time integration.
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_actions_ij( i, j, location )
 
-
-    INTEGER(iwp),      INTENT(IN) ::  i         !< grid index in x-direction
-    INTEGER(iwp),      INTENT(IN) ::  j         !< grid index in y-direction
     CHARACTER (LEN=*), INTENT(IN) ::  location  !< call location string
-    INTEGER(iwp)  ::  dummy  !< call location string
 
-    IF ( salsa    )   dummy = i + j
+    INTEGER(iwp) ::  dummy  !< dummy variable to avoid compiler warnings of unused variables
+
+    INTEGER(iwp), INTENT(IN) ::  i  !< grid index in x-direction
+    INTEGER(iwp), INTENT(IN) ::  j  !< grid index in y-direction
+
+
+    dummy = i + j
 
     SELECT CASE ( location )
-
-       CASE ( 'before_timestep' )
-
-          IF ( ws_scheme_sca )  sums_salsa_ws_l = 0.0_wp
 
        CASE DEFAULT
           CONTINUE
 
     END SELECT
 
-
  END SUBROUTINE salsa_actions_ij
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Call for all grid points
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_non_advective_processes
 
     USE cpulog,                                                                                    &
-        ONLY:  cpu_log, log_point_s
+        ONLY:  cpu_log,                                                                            &
+               log_point_s
 
     IMPLICIT NONE
 
     INTEGER(iwp) ::  i  !<
     INTEGER(iwp) ::  j  !<
 
-    IF ( time_since_reference_point >= skip_time_do_salsa )  THEN
+
+    IF ( time_since_reference_point >= salsa_start_time )  THEN
        IF ( ( time_since_reference_point - last_salsa_time ) >= dt_salsa )  THEN
 !
 !--       Calculate aerosol dynamic processes. salsa_driver can be run with a longer time step.
@@ -7966,22 +9083,24 @@
  END SUBROUTINE salsa_non_advective_processes
 
 
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Call for grid points i,j
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_non_advective_processes_ij( i, j )
 
-    USE cpulog,                                                                &
-        ONLY:  cpu_log, log_point_s
+    USE cpulog,                                                                                    &
+        ONLY:  cpu_log,                                                                            &
+               log_point_s
 
     IMPLICIT NONE
 
     INTEGER(iwp), INTENT(IN) ::  i  !< grid index in x-direction
     INTEGER(iwp), INTENT(IN) ::  j  !< grid index in y-direction
 
-    IF ( time_since_reference_point >= skip_time_do_salsa )  THEN
+
+    IF ( time_since_reference_point >= salsa_start_time )  THEN
        IF ( ( time_since_reference_point - last_salsa_time ) >= dt_salsa )  THEN
 !
 !--       Calculate aerosol dynamic processes. salsa_driver can be run with a longer time step.
@@ -7995,17 +9114,19 @@
 
  END SUBROUTINE salsa_non_advective_processes_ij
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Routine for exchange horiz of salsa variables.
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_exchange_horiz_bounds ( location )
 
-    USE cpulog,                                                                &
-        ONLY:  cpu_log, log_point_s
+    USE cpulog,                                                                                    &
+        ONLY:  cpu_log,                                                                            &
+               log_point_s
 
-    USE exchange_horiz_mod,                                                    &
+    USE exchange_horiz_mod,                                                                        &
         ONLY:  exchange_horiz
 
     IMPLICIT NONE
@@ -8017,11 +9138,12 @@
 
     CHARACTER (LEN=*), INTENT(IN) ::  location !< call location string
 
+
     SELECT CASE ( location )
 
        CASE ( 'before_prognostic_equation' )
 
-          IF ( time_since_reference_point >= skip_time_do_salsa )  THEN
+          IF ( time_since_reference_point >= salsa_start_time )  THEN
              IF ( ( time_since_reference_point - last_salsa_time ) >= dt_salsa )  THEN
 
                 CALL cpu_log( log_point_s(91), 'salsa exch-horiz ', 'start' )
@@ -8054,7 +9176,7 @@
 
        CASE ( 'after_prognostic_equation' )
 
-          IF ( salsa  .AND.  time_since_reference_point >= skip_time_do_salsa )  THEN
+          IF ( time_since_reference_point >= salsa_start_time )  THEN
              DO  ib = 1, nbins_aerosol
                 CALL exchange_horiz( aerosol_number(ib)%conc_p, nbgp,                              &
                                      alternative_communicator = communicator_salsa )
@@ -8074,7 +9196,7 @@
 
        CASE ( 'after_anterpolation' )
 
-          IF ( salsa  .AND. time_since_reference_point >= skip_time_do_salsa )  THEN
+          IF ( time_since_reference_point >= salsa_start_time )  THEN
              DO  ib = 1, nbins_aerosol
                 CALL exchange_horiz( aerosol_number(ib)%conc, nbgp,                                &
                                      alternative_communicator = communicator_salsa )
@@ -8116,7 +9238,8 @@
     INTEGER(iwp) ::  j            !<
     INTEGER(iwp) ::  tn           !<
 
-    IF ( time_since_reference_point >= skip_time_do_salsa )  THEN
+
+    IF ( time_since_reference_point >= salsa_start_time )  THEN
 !
 !--    Aerosol number
        DO  ib = 1, nbins_aerosol
@@ -8142,6 +9265,29 @@
           ENDDO  ! ic
        ENDDO  ! ib
 !
+!--    Aerosol number (traffic) - only if traffic tracking is enabled
+       IF ( is_traffic )  THEN
+       DO  ib = 1, nbins_aerosol
+          CALL salsa_tendency( 'aerosol_number_tra', aerosol_number_tra(ib)%conc_p,                 &
+                               aerosol_number_tra(ib)%conc, aerosol_number_tra(ib)%tconc_m,         &
+                               i, j, i_omp_start, tn, ib, ib,                                      &
+                               aerosol_number_tra(ib)%flux_s, aerosol_number_tra(ib)%diss_s,       &
+                               aerosol_number_tra(ib)%flux_l, aerosol_number_tra(ib)%diss_l,       &
+                               aerosol_number_tra(ib)%init, .TRUE. )
+!
+!--       Aerosol mass (traffic)
+          DO  ic = 1, ncomponents_mass
+             icc = ( ic - 1 ) * nbins_aerosol + ib
+             CALL salsa_tendency( 'aerosol_mass_tra', aerosol_mass_tra(icc)%conc_p,                 &
+                                  aerosol_mass_tra(icc)%conc, aerosol_mass_tra(icc)%tconc_m,        &
+                                  i, j, i_omp_start, tn, ib, ic,                                   &
+                                  aerosol_mass_tra(icc)%flux_s, aerosol_mass_tra(icc)%diss_s,      &
+                                  aerosol_mass_tra(icc)%flux_l, aerosol_mass_tra(icc)%diss_l,      &
+                                  aerosol_mass_tra(icc)%init, .TRUE. )
+          ENDDO  ! ic
+       ENDDO  ! ib
+       ENDIF  ! is_traffic
+!
 !--    Gases
        IF ( .NOT. salsa_gases_from_chem )  THEN
 
@@ -8160,13 +9306,14 @@
     ENDIF
 
  END SUBROUTINE salsa_prognostic_equations_ij
-!
-!------------------------------------------------------------------------------!
+
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Calculate the prognostic equation for aerosol number and mass, and gas
 !> concentrations. For vector machines.
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_prognostic_equations()
 
     IMPLICIT NONE
@@ -8176,7 +9323,8 @@
     INTEGER(iwp) ::  icc          !< (c-1)*nbins_aerosol+b
     INTEGER(iwp) ::  ig           !< loop index for salsa gases
 
-    IF ( time_since_reference_point >= skip_time_do_salsa )  THEN
+
+    IF ( time_since_reference_point >= salsa_start_time )  THEN
 !
 !--    Aerosol number
        DO  ib = 1, nbins_aerosol
@@ -8196,6 +9344,27 @@
           ENDDO  ! ic
        ENDDO  ! ib
 !
+!--    Aerosol number (traffic)
+       IF ( is_traffic )  THEN
+       DO  ib = 1, nbins_aerosol
+          sums_salsa_ws_l = aerosol_number_tra(ib)%sums_ws_l
+          CALL salsa_tendency( 'aerosol_number_tra', aerosol_number_tra(ib)%conc_p,                 &
+                               aerosol_number_tra(ib)%conc, aerosol_number_tra(ib)%tconc_m,         &
+                               ib, ib, aerosol_number_tra(ib)%init, .TRUE. )
+          aerosol_number_tra(ib)%sums_ws_l = sums_salsa_ws_l
+!
+!--       Aerosol mass (traffic)
+          DO  ic = 1, ncomponents_mass
+             icc = ( ic - 1 ) * nbins_aerosol + ib
+             sums_salsa_ws_l = aerosol_mass_tra(icc)%sums_ws_l
+             CALL salsa_tendency( 'aerosol_mass_tra', aerosol_mass_tra(icc)%conc_p,                 &
+                                  aerosol_mass_tra(icc)%conc, aerosol_mass_tra(icc)%tconc_m,        &
+                                  ib, ic, aerosol_mass_tra(icc)%init, .TRUE. )
+             aerosol_mass_tra(icc)%sums_ws_l = sums_salsa_ws_l
+          ENDDO  ! ic
+       ENDDO  ! ib
+       ENDIF  ! is_traffic
+!
 !--    Gases
        IF ( .NOT. salsa_gases_from_chem )  THEN
 
@@ -8212,13 +9381,14 @@
     ENDIF
 
  END SUBROUTINE salsa_prognostic_equations
-!
-!------------------------------------------------------------------------------!
+
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Tendencies for aerosol number and mass and gas concentrations.
 !> Cache-optimized.
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_tendency_ij( id, rs_p, rs, trs_m, i, j, i_omp_start, tn, ib, ic, flux_s, diss_s, &
                                flux_l, diss_l, rs_init, do_sedimentation )
 
@@ -8232,7 +9402,9 @@
         ONLY:  advec_s_up
 
     USE arrays_3d,                                                                                 &
-        ONLY:  ddzu, rdf_sc, tend
+        ONLY:  ddzw,                                                                               &
+               rdf_sc,                                                                             &
+               tend
 
     USE diffusion_s_mod,                                                                           &
         ONLY:  diffusion_s
@@ -8267,6 +9439,7 @@
     REAL(wp), DIMENSION(nzb:nzt+1,nysg:nyng,nxlg:nxrg) ::  rs      !<
     REAL(wp), DIMENSION(nzb:nzt+1,nysg:nyng,nxlg:nxrg) ::  trs_m   !<
 
+
     icc = ( ic - 1 ) * nbins_aerosol + ib
 !
 !-- Tendency-terms for reactive scalar
@@ -8292,20 +9465,42 @@
        CASE ( 'aerosol_number' )
           CALL diffusion_s( i, j, rs, surf_top%answs(:,ib), surf_def%answs(:,ib),                  &
                             surf_lsm%answs(:,ib), surf_usm%answs(:,ib) )
+       CASE ( 'aerosol_number_tra' )
+          CALL diffusion_s( i, j, rs, surf_top%answs(:,ib), surf_def%answs(:,ib),                  &
+                            surf_lsm%answs(:,ib), surf_usm%answs(:,ib) )
+!
+!--      Also apply traffic number flux
+          DO  k = nzb+1, nzt
+             tend(k,j,i) = tend(k,j,i) + tra_answs(ib,ib) * ddzw(k) *                              &
+                            MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 0 ) )
+          ENDDO
        CASE ( 'aerosol_mass' )
           CALL diffusion_s( i, j, rs, surf_top%amsws(:,icc), surf_def%amsws(:,icc),                &
                             surf_lsm%amsws(:,icc), surf_usm%amsws(:,icc) )
+       CASE ( 'aerosol_mass_tra' )
+          CALL diffusion_s( i, j, rs, surf_top%amsws(:,icc), surf_def%amsws(:,icc),                &
+                            surf_lsm%amsws(:,icc), surf_usm%amsws(:,icc) )
+!
+!--      Also apply traffic mass flux
+          DO  k = nzb+1, nzt
+             tend(k,j,i) = tend(k,j,i) + tra_amsws(icc,icc) * ddzw(k) *                            &
+                            MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 0 ) )
+          ENDDO
        CASE ( 'salsa_gas' )
           CALL diffusion_s( i, j, rs, surf_top%gtsws(:,ib), surf_def%gtsws(:,ib),                  &
                             surf_lsm%gtsws(:,ib), surf_usm%gtsws(:,ib) )
     END SELECT
 !
 !-- Sedimentation for aerosol number and mass.
+!-- Note that the sedimentation velocity is defined positive.
     IF ( lsdepo  .AND.  do_sedimentation )  THEN
        DO  k = nzb+1, nzt
-          tend(k,j,i) = tend(k,j,i) - MAX( 0.0_wp, ( rs(k+1,j,i) * sedim_vd(k+1,j,i,ib) -          &
-                                                     rs(k,j,i) * sedim_vd(k,j,i,ib) ) * ddzu(k) )  &
-                                    * MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k-1,j,i), 0 ) )
+          tend(k,j,i) = tend(k,j,i) + ( 0.5_wp * ( rs(k+1,j,i) + rs(k,j,i) ) *                     &
+                                        0.5_wp * ( sedim_vd(k+1,ib) + sedim_vd(k,ib) )             &
+                                      - 0.5_wp * ( rs(k,j,i) + rs(k-1,j,i) ) *                     &
+                                        0.5_wp * ( sedim_vd(k,ib) + sedim_vd(k-1,ib) )             &
+                                      ) * ddzw(k) *                                                &
+                                      MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 0 ) )
        ENDDO
     ENDIF
 !
@@ -8317,6 +9512,10 @@
        IF ( rs_p(k,j,i) < 0.0_wp  .AND.  .NOT. allow_negative_scalar_values )  THEN
           rs_p(k,j,i) = 0.1_wp * rs(k,j,i)
        ENDIF
+!
+!--    Additional safety clip for _tra arrays to prevent negative output
+       IF ( id == 'aerosol_mass_tra' .AND. rs_p(k,j,i) < mclim )  rs_p(k,j,i) = mclim
+       IF ( id == 'aerosol_number_tra' .AND. rs_p(k,j,i) < nclim )  rs_p(k,j,i) = nclim
     ENDDO
 !
 !-- Calculate tendencies for the next Runge-Kutta step
@@ -8333,25 +9532,33 @@
     ENDIF
 
  END SUBROUTINE salsa_tendency_ij
-!
-!------------------------------------------------------------------------------!
+
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Calculate the tendencies for aerosol number and mass concentrations.
 !> For vector machines.
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_tendency( id, rs_p, rs, trs_m, ib, ic, rs_init, do_sedimentation )
 
     USE advec_ws,                                                                                  &
         ONLY:  advec_s_ws
+
     USE advec_s_pw_mod,                                                                            &
         ONLY:  advec_s_pw
-    USE advec_s_up_mod,                                                                            &
+
+    USE advec_s_up_mod,                                                                            \
         ONLY:  advec_s_up
+
     USE arrays_3d,                                                                                 &
-        ONLY:  ddzu, rdf_sc, tend
+        ONLY:  ddzw,                                                                               &
+               rdf_sc,                                                                             &
+               tend
+
     USE diffusion_s_mod,                                                                           &
         ONLY:  diffusion_s
+
     USE indices,                                                                                   &
         ONLY:  topo_flags
 
@@ -8374,6 +9581,7 @@
     REAL(wp), DIMENSION(:,:,:), POINTER ::  rs      !<
     REAL(wp), DIMENSION(:,:,:), POINTER ::  trs_m   !<
 
+
     icc = ( ic - 1 ) * nbins_aerosol + ib
 !
 !-- Tendency-terms for reactive scalar
@@ -8382,11 +9590,20 @@
 !-- Advection terms
     IF ( timestep_scheme(1:5) == 'runge' )  THEN
        IF ( ws_scheme_sca )  THEN
-          CALL advec_s_ws( salsa_advc_flags_s, rs, id,                                             &
-                           bc_dirichlet_aer_l  .OR.  bc_radiation_aer_l,                           &
-                           bc_dirichlet_aer_n  .OR.  bc_radiation_aer_n,                           &
-                           bc_dirichlet_aer_r  .OR.  bc_radiation_aer_r,                           &
-                           bc_dirichlet_aer_s  .OR.  bc_radiation_aer_s )
+          IF ( .NOT. advanced_div_correction )  THEN
+             CALL advec_s_ws( salsa_advc_flags_s, rs, id,                                          &
+                              bc_dirichlet_aer_l  .OR.  bc_radiation_aer_l,                        &
+                              bc_dirichlet_aer_n  .OR.  bc_radiation_aer_n,                        &
+                              bc_dirichlet_aer_r  .OR.  bc_radiation_aer_r,                        &
+                              bc_dirichlet_aer_s  .OR.  bc_radiation_aer_s )
+          ELSE
+             CALL advec_s_ws( salsa_advc_flags_s, rs, id,                                          &
+                              bc_dirichlet_aer_l  .OR.  bc_radiation_aer_l,                        &
+                              bc_dirichlet_aer_n  .OR.  bc_radiation_aer_n,                        &
+                              bc_dirichlet_aer_r  .OR.  bc_radiation_aer_r,                        &
+                              bc_dirichlet_aer_s  .OR.  bc_radiation_aer_s,                        &
+                              advanced_div_correction )
+          ENDIF
        ELSE
           CALL advec_s_pw( rs )
        ENDIF
@@ -8399,7 +9616,13 @@
        CASE ( 'aerosol_number' )
           CALL diffusion_s( rs, surf_top%answs(:,ib), surf_def%answs(:,ib), surf_lsm%answs(:,ib),  &
                             surf_usm%answs(:,ib) )
+       CASE ( 'aerosol_number_tra' )
+          CALL diffusion_s( rs, surf_top%answs(:,ib), surf_def%answs(:,ib), surf_lsm%answs(:,ib),  &
+                            surf_usm%answs(:,ib) )
        CASE ( 'aerosol_mass' )
+          CALL diffusion_s( rs, surf_top%amsws(:,icc), surf_def%amsws(:,icc),                      &
+                            surf_lsm%amsws(:,icc), surf_usm%amsws(:,icc) )
+       CASE ( 'aerosol_mass_tra' )
           CALL diffusion_s( rs, surf_top%amsws(:,icc), surf_def%amsws(:,icc),                      &
                             surf_lsm%amsws(:,icc), surf_usm%amsws(:,icc) )
        CASE ( 'salsa_gas' )
@@ -8408,15 +9631,18 @@
     END SELECT
 !
 !-- Sedimentation for aerosol number and mass.
+!-- Note that the sedimentation velocity is defined positive.
     IF ( lsdepo  .AND.  do_sedimentation )  THEN
        DO  i = nxl, nxr
           DO  j = nys, nyn
              DO  k = nzb+1, nzt
-                tend(k,j,i) = tend(k,j,i) - MAX( 0.0_wp,                                           &
-                                                 ( rs(k+1,j,i) * sedim_vd(k+1,j,i,ib) -            &
-                                                   rs(k,j,i)   * sedim_vd(k,j,i,ib)  ) * ddzu(k)   &
-                                               ) *                                                 &
-                                            MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k-1,j,i), 0 ) )
+                tend(k,j,i) = tend(k,j,i) +                                                        &
+                                          ( 0.5_wp * ( rs(k+1,j,i) + rs(k,j,i) ) *                 &
+                                            0.5_wp * ( sedim_vd(k+1,ib) + sedim_vd(k,ib) )         &
+                                          - 0.5_wp * ( rs(k,j,i) + rs(k-1,j,i) ) *                 &
+                                            0.5_wp * ( sedim_vd(k,ib) + sedim_vd(k-1,ib) )         &
+                                          ) * ddzw(k) *                                            &
+                                          MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 0 ) )
             ENDDO
          ENDDO
       ENDDO
@@ -8433,6 +9659,10 @@
              IF ( rs_p(k,j,i) < 0.0_wp  .AND.  .NOT. allow_negative_scalar_values )  THEN
                 rs_p(k,j,i) = 0.1_wp * rs(k,j,i)
              ENDIF
+!
+!--          Additional safety clip for _tra arrays to prevent negative output
+             IF ( id == 'aerosol_mass_tra' .AND. rs_p(k,j,i) < mclim )  rs_p(k,j,i) = mclim
+             IF ( id == 'aerosol_number_tra' .AND. rs_p(k,j,i) < nclim )  rs_p(k,j,i) = nclim
           ENDDO
        ENDDO
     ENDDO
@@ -8461,11 +9691,11 @@
  END SUBROUTINE salsa_tendency
 
 
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Boundary conditions for prognostic variables in SALSA
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_boundary_conditions( horizontal_conditions_only )
 
     USE arrays_3d,                                                                                 &
@@ -8486,7 +9716,8 @@
 
     REAL(wp) ::  flag  !< flag to mask topography grid points
 
-    IF ( time_since_reference_point >= skip_time_do_salsa )  THEN
+
+    IF ( time_since_reference_point >= salsa_start_time )  THEN
 
        IF ( .NOT. PRESENT( horizontal_conditions_only ) )  THEN
 !
@@ -9113,13 +10344,13 @@
  END SUBROUTINE salsa_boundary_conditions
 
 
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Calculates the total dry or wet mass concentration for individual bins
 !> Juha Tonttila (FMI) 2015
 !> Tomi Raatikainen (FMI) 2016
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE bin_mixrat( itype, ibin, i, j, mconc )
 
     IMPLICIT NONE
@@ -9135,14 +10366,16 @@
 
     REAL(wp), DIMENSION(:), INTENT(out) ::  mconc  !< total dry or wet mass concentration
 
+
+!
 !-- Number of components
     IF ( itype == 'dry' )  THEN
        iend = prtcl%ncomp - 1
     ELSE IF ( itype == 'wet' )  THEN
        iend = prtcl%ncomp
     ELSE
-       message_string = 'Error in itype!'
-       CALL message( 'bin_mixrat', 'PA0628', 2, 2, 0, 6, 0 )
+       message_string = 'error in itype'
+       CALL message( 'bin_mixrat', 'SAL0038', 2, 2, 0, 6, 0 )
     ENDIF
 
     mconc = 0.0_wp
@@ -9153,18 +10386,20 @@
 
  END SUBROUTINE bin_mixrat
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Sets surface fluxes
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_emission_update
 
     IMPLICIT NONE
 
+
     IF ( include_emission )  THEN
 
-       IF ( time_since_reference_point >= skip_time_do_salsa  )  THEN
+       IF ( time_since_reference_point >= salsa_start_time  )  THEN
           IF ( next_aero_emission_update <=                                                        &
                MAX( time_since_reference_point, 0.0_wp ) )  THEN
              CALL salsa_emission_setup( .FALSE. )
@@ -9183,25 +10418,37 @@
 
  END SUBROUTINE salsa_emission_update
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 !> Description:
 !> ------------
 !> Define aerosol fluxes: constant or read from a from file
 !> @todo - Emission stack height is not used yet. For default mode, emissions
 !>         are assumed to occur on upward facing horizontal surfaces.
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_emission_setup( init )
 
     USE control_parameters,                                                                        &
-        ONLY:  end_time, spinup_time
+        ONLY:  end_time,                                                                           &
+               spinup_time
 
-    USE netcdf_data_input_mod,                                                                     &
-        ONLY:  check_existence, close_input_file, get_attribute, get_variable,                     &
-               inquire_num_variables, inquire_variable_names,                                      &
-               get_dimension_length, open_read_file, street_type_f
+    USE netcdf_data_input_mod,                                                                     \
+        ONLY:  check_existence,                                                                    &
+               close_input_file,                                                                   &
+               get_attribute,                                                                      \
+               get_variable,                                                                       &
+               inquire_num_variables,                                                              &
+               inquire_variable_names,                                                             \
+               get_dimension_length,                                                               \
+               open_read_file,                                                                     &
+               street_type_f
 
     USE palm_date_time_mod,                                                                        &
-        ONLY:  days_per_week, get_date_time, hours_per_day, months_per_year, seconds_per_hour
+        ONLY:  days_per_week,                                                                      &
+               get_date_time,                                                                      &
+               hours_per_day,                                                                      &
+               months_per_year,                                                                    &
+               seconds_per_hour
 
     IMPLICIT NONE
 
@@ -9228,6 +10475,7 @@
 
     INTEGER(iwp), DIMENSION(maxspec) ::  cc_i2m   !<
 
+    LOGICAL  ::  is_traffic_cat   !< flag for traffic emission category
     LOGICAL  ::  netcdf_extend = .FALSE.  !< NetCDF input file exists
 
     LOGICAL, INTENT(in) ::  init  !< if .TRUE. --> initialisation call
@@ -9243,6 +10491,7 @@
     REAL(wp), DIMENSION(:), ALLOCATABLE ::  nsect_emission  !< sectional number emission
 
     REAL(wp), DIMENSION(:,:,:), ALLOCATABLE ::  source_array  !< temporary source array
+
 
 !
 !-- Define emissions:
@@ -9289,8 +10538,8 @@
                    ENDDO
                 ELSE
                    WRITE( message_string, * ) 'salsa_emission_mode = "parameterized" but the '//  &
-                                              'street_type data is missing.'
-                   CALL message( 'salsa_emission_setup', 'PA0695', 1, 2, 0, 6, 0 )
+                                              'street_type data is missing'
+                   CALL message( 'salsa_emission_setup', 'SAL0039', 1, 2, 0, 6, 0 )
                 ENDIF
              ENDIF
 !
@@ -9303,6 +10552,12 @@
              IF ( index_ss > 0 )  cc_i2m(5) = index_ss
              IF ( index_no > 0 )  cc_i2m(6) = index_no
              IF ( index_nh > 0 )  cc_i2m(7) = index_nh
+! MODIFICATION: Added index mapping for new trace metal species
+             IF ( index_pb > 0 )  cc_i2m(8) = index_pb
+             IF ( index_hg > 0 )  cc_i2m(9) = index_hg
+             IF ( index_ni > 0 )  cc_i2m(10) = index_ni
+             IF ( index_cd > 0 )  cc_i2m(11) = index_cd
+             IF ( index_as > 0 )  cc_i2m(12) = index_as
 !
 !--          Normalise mass fractions so that their sum is 1
              aerosol_flux_mass_fracs_a = aerosol_flux_mass_fracs_a /                               &
@@ -9344,9 +10599,9 @@
 !--       Check existence of PIDS_SALSA file
           INQUIRE( FILE = TRIM( input_file_salsa ) // TRIM( coupling_char ), EXIST = netcdf_extend )
           IF ( .NOT. netcdf_extend )  THEN
-             message_string = 'Input file '// TRIM( input_file_salsa ) //  TRIM( coupling_char )&
-                              // ' missing!'
-             CALL message( 'salsa_emission_setup', 'PA0629', 1, 2, 0, 6, 0 )
+             message_string = 'input file '// TRIM( input_file_salsa ) // TRIM( coupling_char ) // &
+                              ' for SALSA missing'
+             CALL message( 'salsa_emission_setup', 'SAL0040', 1, 2, 0, 6, 0 )
           ENDIF
 !
 !--       Open file in read-only mode
@@ -9368,8 +10623,8 @@
                 CALL get_variable( id_salsa, 'composition_name', aero_emission_att%cc_name,        &
                                    aero_emission_att%ncc )
              ELSE
-                message_string = 'Missing composition_name in ' // TRIM( input_file_salsa )
-                CALL message( 'salsa_emission_setup', 'PA0657', 1, 2, 0, 6, 0 )
+                message_string = 'missing "composition_name" in ' // TRIM( input_file_salsa )
+                CALL message( 'salsa_emission_setup', 'SAL0041', 1, 2, 0, 6, 0 )
              ENDIF
 !
 !--          Find the corresponding chemical components in the model
@@ -9391,14 +10646,25 @@
                       aero_emission_att%cc_in2mod(6) = ic
                    CASE ( 'NH3', 'nh3', 'NH', 'nh', 'NH4', 'nh4' )
                       aero_emission_att%cc_in2mod(7) = ic
+! MODIFICATION: Added case statements for new trace metal species in emission file
+                   CASE ( 'PB', 'pb', 'Pb', 'lead', 'Lead' )
+                      aero_emission_att%cc_in2mod(8) = ic
+                   CASE ( 'HG', 'hg', 'Hg', 'mercury', 'Mercury' )
+                      aero_emission_att%cc_in2mod(9) = ic
+                   CASE ( 'NI', 'ni', 'Ni', 'nickel', 'Nickel' )
+                      aero_emission_att%cc_in2mod(10) = ic
+                   CASE ( 'CD', 'cd', 'Cd', 'cadmium', 'Cadmium' )
+                      aero_emission_att%cc_in2mod(11) = ic
+                   CASE ( 'AS', 'as', 'As', 'arsenic', 'Arsenic' )
+                      aero_emission_att%cc_in2mod(12) = ic
                 END SELECT
 
              ENDDO
 
              IF ( SUM( aero_emission_att%cc_in2mod ) == 0 )  THEN
-                message_string = 'None of the aerosol chemical components in ' // TRIM(            &
-                                 input_file_salsa ) // ' correspond to the ones applied in SALSA.'
-                CALL message( 'salsa_emission_setup', 'PA0630', 1, 2, 0, 6, 0 )
+                message_string = 'none of the aerosol chemical components in ' // TRIM(            &
+                                 input_file_salsa ) // ' correspond to the ones applied in SALSA'
+                CALL message( 'salsa_emission_setup', 'SAL0042', 1, 2, 0, 6, 0 )
              ENDIF
 !
 !--          Get number of emission categories
@@ -9409,10 +10675,10 @@
                 ALLOCATE( aero_emission%mass_fracs(1:aero_emission_att%ncat,                       &
                                                    1:aero_emission_att%ncc) )
                 CALL get_variable( id_salsa, 'emission_mass_fracs', aero_emission%mass_fracs,      &
-                                   0, aero_emission_att%ncc-1, 0, aero_emission_att%ncat-1 )
+                                   0, aero_emission_att%ncc-1, 0, aero_emission_att%ncat-1, nbgp=0 )
              ELSE
-                message_string = 'Missing emission_mass_fracs in ' //  TRIM( input_file_salsa )
-                CALL message( 'salsa_emission_setup', 'PA0694', 1, 2, 0, 6, 0 )
+                message_string = 'missing "emission_mass_fracs" in ' //  TRIM( input_file_salsa )
+                CALL message( 'salsa_emission_setup', 'SAL0043', 1, 2, 0, 6, 0 )
              ENDIF
 !
 !--          If the chemical component is not activated, set its mass fraction to 0 to avoid
@@ -9444,6 +10710,27 @@
              IF ( index_nh  < 0  .AND.  aero_emission_att%cc_in2mod(7) > 0 )  THEN
                 aero_emission%mass_fracs(:,aero_emission_att%cc_in2mod(7)) = 0.0_wp
                 aero_emission_att%cc_in2mod(7) = 0
+             ENDIF
+! MODIFICATION: Added deactivation for new trace metal species if not active
+             IF ( index_pb  < 0  .AND.  aero_emission_att%cc_in2mod(8) > 0 )  THEN
+                aero_emission%mass_fracs(:,aero_emission_att%cc_in2mod(8)) = 0.0_wp
+                aero_emission_att%cc_in2mod(8) = 0
+             ENDIF
+             IF ( index_hg  < 0  .AND.  aero_emission_att%cc_in2mod(9) > 0 )  THEN
+                aero_emission%mass_fracs(:,aero_emission_att%cc_in2mod(9)) = 0.0_wp
+                aero_emission_att%cc_in2mod(9) = 0
+             ENDIF
+             IF ( index_ni  < 0  .AND.  aero_emission_att%cc_in2mod(10) > 0 )  THEN
+                aero_emission%mass_fracs(:,aero_emission_att%cc_in2mod(10)) = 0.0_wp
+                aero_emission_att%cc_in2mod(10) = 0
+             ENDIF
+             IF ( index_cd  < 0  .AND.  aero_emission_att%cc_in2mod(11) > 0 )  THEN
+                aero_emission%mass_fracs(:,aero_emission_att%cc_in2mod(11)) = 0.0_wp
+                aero_emission_att%cc_in2mod(11) = 0
+             ENDIF
+             IF ( index_as  < 0  .AND.  aero_emission_att%cc_in2mod(12) > 0 )  THEN
+                aero_emission%mass_fracs(:,aero_emission_att%cc_in2mod(12)) = 0.0_wp
+                aero_emission_att%cc_in2mod(12) = 0
              ENDIF
 !
 !--          Then normalise the mass fraction so that SUM = 1
@@ -9479,7 +10766,7 @@
                 ELSE
                    message_string = 'unknown unit for aerosol emissions: ' //                      &
                                     TRIM( aero_emission_att%units ) // ' (lod1)'
-                   CALL message( 'salsa_emission_setup','PA0631', 1, 2, 0, 6, 0 )
+                   CALL message( 'salsa_emission_setup','SAL0044', 1, 2, 0, 6, 0 )
                 ENDIF
 !
 !--             Allocate emission arrays
@@ -9488,12 +10775,14 @@
                           aero_emission_att%time_factor(1:aero_emission_att%ncat) )
 !
 !--             Get emission category names and indices
-                IF ( check_existence( aero_emission_att%var_names, 'emission_category_name' ) )  THEN
+                IF ( check_existence( aero_emission_att%var_names, 'emission_category_name' ) )    &
+                THEN
                    CALL get_variable( id_salsa, 'emission_category_name',                          &
                                       aero_emission_att%cat_name,  aero_emission_att%ncat )
                 ELSE
-                   message_string = 'Missing emission_category_name in ' // TRIM( input_file_salsa )
-                   CALL message( 'salsa_emission_setup', 'PA0658', 1, 2, 0, 6, 0 )
+                   message_string = 'missing "emission_category_name" in ' //                      &
+                                    TRIM( input_file_salsa )
+                   CALL message( 'salsa_emission_setup', 'SAL0045', 1, 2, 0, 6, 0 )
                 ENDIF
                 CALL get_variable( id_salsa, 'emission_category_index', aero_emission_att%cat_index )
 !
@@ -9509,9 +10798,9 @@
                 ENDDO
 
                 IF ( SUM( def_modes%cat_input_to_model ) == 0 )  THEN
-                   message_string = 'None of the emission categories in ' //  TRIM(                &
-                                    input_file_salsa ) // ' match with the ones in the model.'
-                   CALL message( 'salsa_emission_setup', 'PA0632', 1, 2, 0, 6, 0 )
+                   message_string = 'none of the emission categories in ' //  TRIM(                &
+                                    input_file_salsa ) // ' match with the ones in the model'
+                   CALL message( 'salsa_emission_setup', 'SAL0046', 1, 2, 0, 6, 0 )
                 ENDIF
 !
 !--             Emission time factors: Find check whether emission time factors are given for each
@@ -9523,7 +10812,8 @@
                    ALLOCATE( aero_emission_att%etf(1:aero_emission_att%ncat,                       &
                                                    1:aero_emission_att%nhoursyear) )
                    CALL get_variable( id_salsa, 'emission_time_factors', aero_emission_att%etf,    &
-                                    0, aero_emission_att%nhoursyear-1, 0, aero_emission_att%ncat-1 )
+                                      0, aero_emission_att%nhoursyear-1, 0,                        &
+                                      aero_emission_att%ncat-1, nbgp=0 )
 !
 !--             Based on the month, day and hour:
                 ELSEIF ( check_existence( aero_emission_att%var_names, 'nmonthdayhour' ) )  THEN
@@ -9532,11 +10822,12 @@
                    ALLOCATE( aero_emission_att%etf(1:aero_emission_att%ncat,                       &
                                                    1:aero_emission_att%nmonthdayhour) )
                    CALL get_variable( id_salsa, 'emission_time_factors', aero_emission_att%etf,    &
-                                 0, aero_emission_att%nmonthdayhour-1, 0, aero_emission_att%ncat-1 )
+                                      0, aero_emission_att%nmonthdayhour-1, 0,                     &
+                                      aero_emission_att%ncat-1, nbgp=0 )
                 ELSE
                    message_string = 'emission_time_factors should be given for each nhoursyear ' //&
                                     'OR nmonthdayhour'
-                   CALL message( 'salsa_emission_setup','PA0633', 1, 2, 0, 6, 0 )
+                   CALL message( 'salsa_emission_setup','SAL0047', 1, 2, 0, 6, 0 )
                 ENDIF
 !
 !--             Next emission update
@@ -9560,11 +10851,22 @@
                                                                aero_emission%mass_fracs(:,cc_i2m(6))
                 IF ( cc_i2m(7) /= 0 )  aero_emission_att%rho = aero_emission_att%rho + arhonh3 *   &
                                                                aero_emission%mass_fracs(:,cc_i2m(7))
+! MODIFICATION: Added density contributions for new trace metal species
+                IF ( cc_i2m(8) /= 0 )  aero_emission_att%rho = aero_emission_att%rho + arhopb *    &
+                                                               aero_emission%mass_fracs(:,cc_i2m(8))
+                IF ( cc_i2m(9) /= 0 )  aero_emission_att%rho = aero_emission_att%rho + arhohg *    &
+                                                               aero_emission%mass_fracs(:,cc_i2m(9))
+                IF ( cc_i2m(10) /= 0 )  aero_emission_att%rho = aero_emission_att%rho + arhoni *   &
+                                                               aero_emission%mass_fracs(:,cc_i2m(10))
+                IF ( cc_i2m(11) /= 0 )  aero_emission_att%rho = aero_emission_att%rho + arhocd *   &
+                                                               aero_emission%mass_fracs(:,cc_i2m(11))
+                IF ( cc_i2m(12) /= 0 )  aero_emission_att%rho = aero_emission_att%rho + arhoas *   &
+                                                               aero_emission%mass_fracs(:,cc_i2m(12))
 !
 !--             Allocate and read surface emission data (in total PM, get_variable_3d_real)
                 ALLOCATE( aero_emission%def_data(nys:nyn,nxl:nxr,1:aero_emission_att%ncat) )
                 CALL get_variable( id_salsa, 'aerosol_emission_values', aero_emission%def_data,    &
-                                   0, aero_emission_att%ncat-1, nxl, nxr, nys, nyn )
+                                   0, aero_emission_att%ncat-1, nxl, nxr, nys, nyn, nbgp=0 )
 
 !
 !--          Pre-processed mode
@@ -9576,15 +10878,15 @@
                 ELSE
                    message_string = 'unknown unit for aerosol emissions: ' //                      &
                                     TRIM( aero_emission_att%units )
-                   CALL message( 'salsa_emission_setup','PA0634', 1, 2, 0, 6, 0 )
+                   CALL message( 'salsa_emission_setup','SAL0048', 1, 2, 0, 6, 0 )
                 ENDIF
 !
 !--             Number of aerosol size bins in the emission data
                 CALL get_dimension_length( id_salsa, aero_emission_att%nbins, 'Dmid' )
                 IF ( aero_emission_att%nbins /= nbins_aerosol )  THEN
-                   message_string = 'The number of size bins in aerosol input data does not ' //   &
+                   message_string = 'the number of size bins in aerosol input data does not ' //   &
                                     'correspond to the model set-up'
-                   CALL message( 'salsa_emission_setup','PA0635', 1, 2, 0, 6, 0 )
+                   CALL message( 'salsa_emission_setup','SAL0049', 1, 2, 0, 6, 0 )
                 ENDIF
 !
 !--             Number of time steps in the emission data
@@ -9601,40 +10903,51 @@
 !--             Check whether the sectional representation of the aerosol size distribution conform
 !--             to the one applied in the model
                 IF ( ANY( ABS( ( aero(1:nbins_aerosol)%dmid - aero_emission_att%dmid ) /           &
-                               aero(1:nbins_aerosol)%dmid ) > 0.1_wp )  )  THEN
-                   message_string = 'Mean diameters of size bins in ' // TRIM( input_file_salsa )  &
-                                    // ' do not match with the ones in the model.'
-                   CALL message( 'salsa_emission_setup','PA0636', 1, 2, 0, 6, 0 )
+                               aero(1:nbins_aerosol)%dmid ) > 0.1_wp ) )  THEN
+                   message_string = 'mean diameters of size bins in ' // TRIM( input_file_salsa )  &
+                                    // ' do not match with the ones in the model'
+                   CALL message( 'salsa_emission_setup','SAL0050', 1, 2, 0, 6, 0 )
                 ENDIF
 !
 !--             Read time stamps:
                 IF ( check_existence( aero_emission_att%var_names, 'time' ) )  THEN
                    CALL get_variable( id_salsa, 'time', aero_emission_att%time )
                 ELSE
-                   message_string = 'Missing time in ' //  TRIM( input_file_salsa )
-                   CALL message( 'salsa_emission_setup', 'PA0660', 1, 2, 0, 6, 0 )
+                   message_string = 'missing "time" in ' //  TRIM( input_file_salsa )
+                   CALL message( 'salsa_emission_setup', 'SAL0051', 1, 2, 0, 6, 0 )
                 ENDIF
 !
 !--             Check if the provided data covers the entire simulation. The spinup time is added
 !--             to the end_time, this must be considered here.
                 IF ( end_time - spinup_time > aero_emission_att%time(aero_emission_att%nt-1) )  THEN
                    message_string = 'end_time of the simulation exceeds the time dimension in ' // &
-                                    'the salsa input file.'
-                   CALL message( 'salsa_emission_setup', 'PA0692', 1, 2, 0, 6, 0 )
+                                    'the salsa input file'
+                   CALL message( 'salsa_emission_setup', 'SAL0052', 1, 2, 0, 6, 0 )
                 ENDIF
 !
 !--             Read emission number fractions per category
                 IF ( check_existence( aero_emission_att%var_names, 'emission_number_fracs' ) )  THEN
                    CALL get_variable( id_salsa, 'emission_number_fracs', aero_emission%num_fracs,  &
-                                      0, nbins_aerosol-1, 0, aero_emission_att%ncat-1 )
+                                      0, nbins_aerosol-1, 0, aero_emission_att%ncat-1, nbgp=0 )
                 ELSE
-                   message_string = 'Missing emission_number_fracs in ' //  TRIM( input_file_salsa )
-                   CALL message( 'salsa_emission_setup', 'PA0694', 1, 2, 0, 6, 0 )
+                   message_string = 'missing emission_number_fracs in ' //  TRIM( input_file_salsa )
+                   CALL message( 'salsa_emission_setup', 'SAL0053', 1, 2, 0, 6, 0 )
+                ENDIF
+!
+!--             Get emission category names (needed for traffic routing)
+                IF ( check_existence( aero_emission_att%var_names, 'emission_category_name' ) )    &
+                THEN
+                   CALL get_variable( id_salsa, 'emission_category_name',                          &
+                                      aero_emission_att%cat_name,  aero_emission_att%ncat )
+                ELSE
+                   message_string = 'missing "emission_category_name" in ' //                      &
+                                    TRIM( input_file_salsa )
+                   CALL message( 'salsa_emission_setup', 'SAL0045', 1, 2, 0, 6, 0 )
                 ENDIF
 
              ELSE
-                message_string = 'Unknown lod for aerosol_emission_values.'
-                CALL message( 'salsa_emission_setup','PA0637', 1, 2, 0, 6, 0 )
+                message_string = 'unknown lod for aerosol_emission_values'
+                CALL message( 'salsa_emission_setup','SAL0054', 1, 2, 0, 6, 0 )
 
              ENDIF  ! lod
 
@@ -9706,14 +11019,19 @@
 !
 !--             Set surface fluxes of aerosol number and mass on horizontal surfaces. Set fluxes
 !--             only for either default, land or urban surface.
+                is_traffic_cat = ( is_traffic .AND.                                                 &
+                                   INDEX( aero_emission_att%cat_name(in), 'traffic' ) > 0 )
                 IF ( .NOT. land_surface  .AND.  .NOT. urban_surface )  THEN
                    CALL set_flux( surf_def, aero_emission_att%cc_in2mod,                           &
-                                  aero_emission%mass_fracs(in,:), source_array )
+                                  aero_emission%mass_fracs(in,:), source_array,                    &
+                                  traffic_emission=is_traffic_cat )
                 ELSE
                    CALL set_flux( surf_usm, aero_emission_att%cc_in2mod,                           &
-                                  aero_emission%mass_fracs(in,:), source_array )
+                                  aero_emission%mass_fracs(in,:), source_array,                    &
+                                  traffic_emission=is_traffic_cat )
                    CALL set_flux( surf_lsm, aero_emission_att%cc_in2mod,                           &
-                                  aero_emission%mass_fracs(in,:), source_array )
+                                  aero_emission%mass_fracs(in,:), source_array,                    &
+                                  traffic_emission=is_traffic_cat )
                 ENDIF
              ENDDO
 !
@@ -9752,7 +11070,7 @@
 !--          Read in the next time step (get_variable_4d_to_3d_real)
              CALL get_variable( id_salsa, 'aerosol_emission_values', aero_emission%preproc_data,   &
                                 aero_emission_att%tind, 0, aero_emission_att%ncat-1,               &
-                                nxl, nxr, nys, nyn )
+                                nxl, nxr, nys, nyn, nbgp=0 )
 !
 !--          Calculate the sources per category and set surface fluxes
              source_array = 0.0_wp
@@ -9762,15 +11080,26 @@
                                           aero_emission%num_fracs(in,ib)
                 ENDDO
 !
+!--             Check if this category is traffic
+                IF ( ALLOCATED( aero_emission_att%cat_name ) )  THEN
+                   is_traffic_cat = ( is_traffic .AND.                                             &
+                                      INDEX( aero_emission_att%cat_name(in), 'traffic' ) > 0 )
+                ELSE
+                   is_traffic_cat = .FALSE.
+                ENDIF
+!
 !--             Set fluxes only for either default, land and urban surface.
                 IF ( .NOT. land_surface  .AND.  .NOT. urban_surface )  THEN
                    CALL set_flux( surf_def, aero_emission_att%cc_in2mod,                           &
-                                  aero_emission%mass_fracs(in,:), source_array )
+                                  aero_emission%mass_fracs(in,:), source_array,                    &
+                                  traffic_emission=is_traffic_cat )
                 ELSE
                    CALL set_flux( surf_usm, aero_emission_att%cc_in2mod,                           &
-                                  aero_emission%mass_fracs(in,:), source_array )
+                                  aero_emission%mass_fracs(in,:), source_array,                    &
+                                  traffic_emission=is_traffic_cat )
                    CALL set_flux( surf_lsm, aero_emission_att%cc_in2mod,                           &
-                                  aero_emission%mass_fracs(in,:), source_array )
+                                  aero_emission%mass_fracs(in,:), source_array,                    &
+                                  traffic_emission=is_traffic_cat )
                 ENDIF
              ENDDO
 !
@@ -9784,24 +11113,24 @@
           CALL close_input_file( id_salsa )
 #else
           message_string = 'salsa_emission_mode = "read_from_file", but preprocessor directive ' //&
-                           ' __netcdf is not used in compiling!'
-          CALL message( 'salsa_emission_setup', 'PA0638', 1, 2, 0, 6, 0 )
+                           ' __netcdf is not used in compiling'
+          CALL message( 'salsa_emission_setup', 'SAL0055', 1, 2, 0, 6, 0 )
 
 #endif
        CASE DEFAULT
           message_string = 'unknown salsa_emission_mode: ' // TRIM( salsa_emission_mode )
-          CALL message( 'salsa_emission_setup', 'PA0639', 1, 2, 0, 6, 0 )
+          CALL message( 'salsa_emission_setup', 'SAL0056', 1, 2, 0, 6, 0 )
 
     END SELECT
 
     CONTAINS
 
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Sets the aerosol flux to aerosol arrays in 2a and 2b.
-!------------------------------------------------------------------------------!
-    SUBROUTINE set_flux( surface, cc_i_mod, mass_fracs, source_array )
+!--------------------------------------------------------------------------------------------------!
+    SUBROUTINE set_flux( surface, cc_i_mod, mass_fracs, source_array, traffic_emission )
 
        USE arrays_3d,                                                                              &
            ONLY:  rho_air_zw
@@ -9817,6 +11146,8 @@
 
        INTEGER(iwp), DIMENSION(:) ::  cc_i_mod   !< index of chemical component in the input data
 
+       LOGICAL, INTENT(in), OPTIONAL ::  traffic_emission  !< if true, route to _tra arrays (pop=2)
+
        REAL(wp) ::  so4_oc  !< mass fraction between SO4 and OC in 1a
 
        REAL(wp), DIMENSION(:), INTENT(in) ::  mass_fracs  !< mass fractions of chemical components
@@ -9825,6 +11156,11 @@
 
        TYPE(surf_type), INTENT(inout) :: surface  !< respective surface type
 
+       LOGICAL ::  istraffic  !< local flag for traffic emission
+
+
+       istraffic = is_traffic
+       IF ( PRESENT( traffic_emission ) )  istraffic = traffic_emission
        so4_oc = 0.0_wp
 
        DO  m = 1, surface%ns
@@ -9853,26 +11189,42 @@
                                                            mass_fracs(cc_i_mod(2)) )
                       surface%amsws(m,ic) = surface%amsws(m,ic) + so4_oc * source_array(j,i,ib)    &
                                             * api6 * aero(ib)%dmid**3 * arhoh2so4 * rho_air_zw(k-1)
-                      aerosol_mass(ic)%source(j,i) = aerosol_mass(ic)%source(j,i) + surface%amsws(m,ic)
+                      IF ( istraffic )  THEN
+                         aerosol_mass_tra(ic)%source(j,i) = aerosol_mass_tra(ic)%source(j,i) + surface%amsws(m,ic)
+                      ELSE
+                         aerosol_mass(ic)%source(j,i) = aerosol_mass(ic)%source(j,i) + surface%amsws(m,ic)
+                      ENDIF
 
                       ic = ( index_oc - 1 ) * nbins_aerosol + ib
                       surface%amsws(m,ic) = surface%amsws(m,ic) + ( 1-so4_oc ) * source_array(j,i,ib) &
                                             * api6 * aero(ib)%dmid**3 * arhooc * rho_air_zw(k-1)
-                      aerosol_mass(ic)%source(j,i) = aerosol_mass(ic)%source(j,i) + surface%amsws(m,ic)
+                      IF ( istraffic )  THEN
+                         aerosol_mass_tra(ic)%source(j,i) = aerosol_mass_tra(ic)%source(j,i) + surface%amsws(m,ic)
+                      ELSE
+                         aerosol_mass(ic)%source(j,i) = aerosol_mass(ic)%source(j,i) + surface%amsws(m,ic)
+                      ENDIF
 !
 !--                Only sulphates
                    ELSEIF ( index_so4 > 0  .AND.  index_oc < 0 )  THEN
                       ic = ( index_so4 - 1 ) * nbins_aerosol + ib
                       surface%amsws(m,ic) = surface%amsws(m,ic) + source_array(j,i,ib) * api6 *    &
                                             aero(ib)%dmid**3 * arhoh2so4 * rho_air_zw(k-1)
-                      aerosol_mass(ic)%source(j,i) = aerosol_mass(ic)%source(j,i) + surface%amsws(m,ic)
+                      IF ( istraffic )  THEN
+                         aerosol_mass_tra(ic)%source(j,i) = aerosol_mass_tra(ic)%source(j,i) + surface%amsws(m,ic)
+                      ELSE
+                         aerosol_mass(ic)%source(j,i) = aerosol_mass(ic)%source(j,i) + surface%amsws(m,ic)
+                      ENDIF
 !
 !--                Only organic carbon
                    ELSEIF ( index_so4 < 0  .AND.  index_oc > 0 )  THEN
                       ic = ( index_oc - 1 ) * nbins_aerosol + ib
                       surface%amsws(m,ic) = surface%amsws(m,ic) + source_array(j,i,ib) * api6 *    &
                                             aero(ib)%dmid**3 * arhooc * rho_air_zw(k-1)
-                      aerosol_mass(ic)%source(j,i) = aerosol_mass(ic)%source(j,i) + surface%amsws(m,ic)
+                      IF ( istraffic )  THEN
+                         aerosol_mass_tra(ic)%source(j,i) = aerosol_mass_tra(ic)%source(j,i) + surface%amsws(m,ic)
+                      ELSE
+                         aerosol_mass(ic)%source(j,i) = aerosol_mass(ic)%source(j,i) + surface%amsws(m,ic)
+                      ENDIF
                    ENDIF
 
                 ELSE
@@ -9881,56 +11233,95 @@
                    IF ( cc_i_mod(1) > 0 )  THEN
                       ic = cc_i_mod(1)
                       CALL set_mass_flux( surface, m, ib, index_so4, mass_fracs(ic), arhoh2so4,    &
-                                          source_array(j,i,ib) )
+                                          source_array(j,i,ib), traffic=istraffic )
                    ENDIF
 !
 !--                Organic carbon
                    IF ( cc_i_mod(2) > 0 )  THEN
                       ic = cc_i_mod(2)
                       CALL set_mass_flux( surface, m, ib, index_oc, mass_fracs(ic),arhooc,         &
-                                          source_array(j,i,ib) )
+                                          source_array(j,i,ib), traffic=istraffic )
                    ENDIF
 !
 !--                Black carbon
                    IF ( cc_i_mod(3) > 0 )  THEN
                       ic = cc_i_mod(3)
                       CALL set_mass_flux( surface, m, ib, index_bc, mass_fracs(ic), arhobc,        &
-                                          source_array(j,i,ib) )
+                                          source_array(j,i,ib), traffic=istraffic )
                    ENDIF
 !
 !--                Dust
                    IF ( cc_i_mod(4) > 0 )  THEN
                       ic = cc_i_mod(4)
                       CALL set_mass_flux( surface, m, ib, index_du, mass_fracs(ic), arhodu,        &
-                                          source_array(j,i,ib) )
+                                          source_array(j,i,ib), traffic=istraffic )
                    ENDIF
 !
 !--                Sea salt
                    IF ( cc_i_mod(5) > 0 )  THEN
                       ic = cc_i_mod(5)
                       CALL set_mass_flux( surface, m, ib, index_ss, mass_fracs(ic), arhoss,        &
-                                          source_array(j,i,ib) )
+                                          source_array(j,i,ib), traffic=istraffic )
                    ENDIF
 !
 !--                Nitric acid
                    IF ( cc_i_mod(6) > 0 )  THEN
                        ic = cc_i_mod(6)
                       CALL set_mass_flux( surface, m, ib, index_no, mass_fracs(ic), arhohno3,      &
-                                          source_array(j,i,ib) )
+                                          source_array(j,i,ib), traffic=istraffic )
                    ENDIF
 !
 !--                Ammonia
                    IF ( cc_i_mod(7) > 0 )  THEN
                        ic = cc_i_mod(7)
                       CALL set_mass_flux( surface, m, ib, index_nh, mass_fracs(ic), arhonh3,       &
-                                          source_array(j,i,ib) )
+                                          source_array(j,i,ib), traffic=istraffic )
+                   ENDIF
+! MODIFICATION: Added mass flux settings for new trace metal species
+!--                Lead
+                   IF ( cc_i_mod(8) > 0 )  THEN
+                      ic = cc_i_mod(8)
+                      CALL set_mass_flux( surface, m, ib, index_pb, mass_fracs(ic), arhopb,        &
+                                          source_array(j,i,ib), traffic=istraffic )
+                   ENDIF
+!
+!--                Mercury
+                   IF ( cc_i_mod(9) > 0 )  THEN
+                      ic = cc_i_mod(9)
+                      CALL set_mass_flux( surface, m, ib, index_hg, mass_fracs(ic), arhohg,        &
+                                          source_array(j,i,ib), traffic=istraffic )
+                   ENDIF
+!
+!--                Nickel
+                   IF ( cc_i_mod(10) > 0 )  THEN
+                      ic = cc_i_mod(10)
+                      CALL set_mass_flux( surface, m, ib, index_ni, mass_fracs(ic), arhoni,        &
+                                          source_array(j,i,ib), traffic=istraffic )
+                   ENDIF
+!
+!--                Cadmium
+                   IF ( cc_i_mod(11) > 0 )  THEN
+                      ic = cc_i_mod(11)
+                      CALL set_mass_flux( surface, m, ib, index_cd, mass_fracs(ic), arhocd,        &
+                                          source_array(j,i,ib), traffic=istraffic )
+                   ENDIF
+!
+!--                Arsenic
+                   IF ( cc_i_mod(12) > 0 )  THEN
+                      ic = cc_i_mod(12)
+                      CALL set_mass_flux( surface, m, ib, index_as, mass_fracs(ic), arhoas,        &
+                                          source_array(j,i,ib), traffic=istraffic )
                    ENDIF
 
                 ENDIF
 !
 !--             Save number fluxes in the end
                 surface%answs(m,ib) = surface%answs(m,ib) + source_array(j,i,ib) * rho_air_zw(k-1)
-                aerosol_number(ib)%source(j,i) = surface%answs(m,ib)
+                IF ( istraffic )  THEN
+                   aerosol_number_tra(ib)%source(j,i) = aerosol_number_tra(ib)%source(j,i) + surface%answs(m,ib)
+                ELSE
+                   aerosol_number(ib)%source(j,i) = aerosol_number(ib)%source(j,i) + surface%answs(m,ib)
+                ENDIF
 
              ENDDO  ! ib
           ENDIF   ! upward facing
@@ -9938,12 +11329,13 @@
 
     END SUBROUTINE set_flux
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Sets the mass emissions to aerosol arrays in 2a and 2b.
-!------------------------------------------------------------------------------!
-    SUBROUTINE set_mass_flux( surface, surf_num, ib, ispec, mass_frac, prho, nsource )
+!--------------------------------------------------------------------------------------------------!
+    SUBROUTINE set_mass_flux( surface, surf_num, ib, ispec, mass_frac, prho, nsource, traffic )
 
        USE arrays_3d,                                                                              &
            ONLY:  rho_air_zw
@@ -9959,11 +11351,18 @@
        INTEGER(iwp), INTENT(in) :: ispec     !< Aerosol species index
        INTEGER(iwp), INTENT(in) :: surf_num  !< index surface elements
 
+       LOGICAL, OPTIONAL, INTENT(in) ::  traffic  !< if .TRUE., route to _tra arrays
+       LOGICAL ::  ltraffic
+
        REAL(wp), INTENT(in) ::  mass_frac    !< mass fraction of a chemical compound in all bins
        REAL(wp), INTENT(in) ::  nsource      !< number source (#/m2/s)
        REAL(wp), INTENT(in) ::  prho         !< Aerosol density
 
        TYPE(surf_type), INTENT(inout) ::  surface  !< respective surface type
+
+
+       ltraffic = .FALSE.
+       IF ( PRESENT( traffic ) )  ltraffic = traffic
 !
 !--    Get indices of respective grid point
        i = surface%i(surf_num)
@@ -9974,26 +11373,40 @@
        ic = ( ispec - 1 ) * nbins_aerosol + ib
        surface%amsws(surf_num,ic) = surface%amsws(surf_num,ic) + mass_frac * nsource *             &
                                     aero(ib)%core * prho * rho_air_zw(k-1)
-       aerosol_mass(ic)%source(j,i) = surface%amsws(surf_num,ic)
+       IF ( ltraffic )  THEN
+          aerosol_mass_tra(ic)%source(j,i) = aerosol_mass_tra(ic)%source(j,i) + surface%amsws(surf_num,ic)
+       ELSE
+          aerosol_mass(ic)%source(j,i) = aerosol_mass(ic)%source(j,i) + surface%amsws(surf_num,ic)
+       ENDIF
 
     END SUBROUTINE set_mass_flux
 
  END SUBROUTINE salsa_emission_setup
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Sets the gaseous fluxes
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_gas_emission_setup( init )
 
     USE netcdf_data_input_mod,                                                                     &
-        ONLY:  check_existence, close_input_file, get_attribute, get_variable,                     &
-               inquire_num_variables, inquire_variable_names,                                      &
-               get_dimension_length, open_read_file
+        ONLY:  check_existence,                                                                    &
+               close_input_file,                                                                   &
+               get_attribute,                                                                      &
+               get_variable,                                                                       &
+               inquire_num_variables,                                                              &
+               inquire_variable_names,                                                             &
+               get_dimension_length,                                                               &
+               open_read_file
 
     USE palm_date_time_mod,                                                                        &
-        ONLY:  days_per_week, get_date_time, hours_per_day, months_per_year, seconds_per_hour
+        ONLY:  days_per_week,                                                                      &
+               get_date_time,                                                                      &
+               hours_per_day,                                                                      &
+               months_per_year,                                                                    \
+               seconds_per_hour
 
     IMPLICIT NONE
 
@@ -10030,6 +11443,7 @@
 
     REAL(wp), DIMENSION(:,:,:,:,:), ALLOCATABLE ::  dum_var_5d  !<
 
+
 !
 !-- Reset surface fluxes
     surf_def%gtsws = 0.0_wp
@@ -10042,7 +11456,7 @@
     INQUIRE( FILE = 'PIDS_CHEM' // TRIM( coupling_char ), EXIST = netcdf_extend )
     IF ( .NOT. netcdf_extend )  THEN
        message_string = 'Input file PIDS_CHEM' //  TRIM( coupling_char ) // ' missing!'
-       CALL message( 'salsa_gas_emission_setup', 'PA0640', 1, 2, 0, 6, 0 )
+       CALL message( 'salsa_gas_emission_setup', 'SAL0057', 1, 2, 0, 6, 0 )
     ENDIF
 !
 !-- Open file in read-only mode
@@ -10116,7 +11530,8 @@
                                                                  1:chem_emission_att%nhoursyear) )
              CALL get_variable( id_chem, 'emission_time_factors',                                  &
                                 chem_emission_att%hourly_emis_time_factor,                         &
-                                0, chem_emission_att%nhoursyear-1, 0, chem_emission_att%ncat-1 )
+                                0, chem_emission_att%nhoursyear-1, 0, chem_emission_att%ncat-1,    &
+                                nbgp=0 )
 !
 !--       Based on the month, day and hour:
           ELSEIF ( check_existence( var_names, 'nmonthdayhour' ) )  THEN
@@ -10125,11 +11540,12 @@
                                                               1:chem_emission_att%nmonthdayhour) )
              CALL get_variable( id_chem, 'emission_time_factors',                                  &
                                 chem_emission_att%mdh_emis_time_factor,                            &
-                                0, chem_emission_att%nmonthdayhour-1, 0, chem_emission_att%ncat-1 )
+                                0, chem_emission_att%nmonthdayhour-1, 0, chem_emission_att%ncat-1, &
+                                nbgp=0 )
           ELSE
              message_string = 'emission_time_factors should be given for each nhoursyear OR ' //   &
                               'nmonthdayhour'
-             CALL message( 'salsa_gas_emission_setup','PA0641', 1, 2, 0, 6, 0 )
+             CALL message( 'salsa_gas_emission_setup','SAL0058', 1, 2, 0, 6, 0 )
           ENDIF
 !
 !--       Next emission update
@@ -10165,8 +11581,8 @@
           ALLOCATE( gas_emission_time(0:chem_emission_att%dt_emission-1) )
           CALL get_variable( id_chem, 'time', gas_emission_time )
        ELSE
-          message_string = 'Unknown lod for emission_values.'
-          CALL message( 'salsa_gas_emission_setup','PA0642', 1, 2, 0, 6, 0 )
+          message_string = 'unknown lod for emission_values'
+          CALL message( 'salsa_gas_emission_setup','SAL0059', 1, 2, 0, 6, 0 )
        ENDIF  ! lod
 
     ENDIF  ! init
@@ -10279,24 +11695,29 @@
 
 #else
     message_string = 'salsa_emission_mode = "read_from_file", but preprocessor directive ' //   &
-                     ' __netcdf is not used in compiling!'
-    CALL message( 'salsa_gas_emission_setup', 'PA0643', 1, 2, 0, 6, 0 )
+                     ' __netcdf is not used in compiling'
+    CALL message( 'salsa_gas_emission_setup', 'SAL0060', 1, 2, 0, 6, 0 )
 
 #endif
 
     CONTAINS
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Set gas fluxes for selected type of surfaces
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
     SUBROUTINE set_gas_flux( surface, cc_i_mod, unit, source_array, time_fac )
 
        USE arrays_3d,                                                                              &
-           ONLY: dzw, hyp, pt, rho_air_zw
+           ONLY:  dzw,                                                                             &
+                  hyp,                                                                             &
+                  pt,                                                                              &
+                  rho_air_zw
 
        USE grid_variables,                                                                         &
-           ONLY:  dx, dy
+           ONLY:  dx,                                                                              &
+                  dy
 
        IMPLICIT NONE
 
@@ -10319,6 +11740,7 @@
        REAL(wp), DIMENSION(nys:nyn,nxl:nxr,1:chem_emission_att%n_emiss_species), INTENT(in) ::  source_array  !<
 
        TYPE(surf_type), INTENT(inout) :: surface  !< respective surface type
+
 
        conv = 1.0_wp
        use_time_fac = PRESENT( time_fac )
@@ -10361,8 +11783,9 @@
                 CASE ( 'mumol/m2/s' )
                    conv = 1.0E-6_wp * avo
                 CASE DEFAULT
-                   message_string = 'unknown unit for gas emissions: ' // TRIM( chem_emission_att%units )
-                   CALL message( 'set_gas_flux','PA0644', 1, 2, 0, 6, 0 )
+                   message_string = 'unknown unit for gas emissions: ' //                          &
+                                    TRIM( chem_emission_att%units )
+                   CALL message( 'set_gas_flux','SAL0061', 1, 2, 0, 6, 0 )
 
              END SELECT
 
@@ -10383,11 +11806,12 @@
 
  END SUBROUTINE salsa_gas_emission_setup
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Check data output for salsa.
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_check_data_output( var, unit )
 
     IMPLICIT NONE
@@ -10397,6 +11821,7 @@
 
     INTEGER(iwp) ::  char_to_int   !< for converting character to integer
 
+
     IF ( var(1:6) /= 'salsa_' )  THEN
        unit = 'illegal'
        RETURN
@@ -10404,7 +11829,11 @@
 !
 !-- Treat bin-specific outputs separately
     IF ( var(7:11) ==  'N_bin' )  THEN
-       READ( var(12:),* ) char_to_int
+       IF ( var(LEN_TRIM(var)-3:) == '_tra' )  THEN
+          READ( var(12:LEN_TRIM(var)-4),* ) char_to_int
+       ELSE
+          READ( var(12:),* ) char_to_int
+       ENDIF
        IF ( char_to_int >= 1  .AND. char_to_int <= SUM( nbin ) )  THEN
           unit = '#/m3'
        ELSE
@@ -10413,7 +11842,11 @@
        ENDIF
 
     ELSEIF ( var(7:11) ==  'm_bin' )  THEN
-       READ( var(12:),* ) char_to_int
+       IF ( var(LEN_TRIM(var)-3:) == '_tra' )  THEN
+          READ( var(12:LEN_TRIM(var)-4),* ) char_to_int
+       ELSE
+          READ( var(12:),* ) char_to_int
+       ENDIF
        IF ( char_to_int >= 1  .AND. char_to_int <= SUM( nbin ) )  THEN
           unit = 'kg/m3'
        ELSE
@@ -10424,7 +11857,7 @@
     ELSEIF ( var(7:11) == 's_H2O' )  THEN
        IF ( .NOT. advect_particle_water )  THEN
           message_string = 'to output s_H2O/s_H2O_av requires that advect_particle_water = .T.'
-          CALL message( 'check_parameters', 'PA0707', 1, 2, 0, 6, 0 )
+          CALL message( 'check_parameters', 'SAL0062', 1, 2, 0, 6, 0 )
        ENDIF
        unit = 'kg/m3'
 
@@ -10435,17 +11868,23 @@
              IF (  air_chemistry )  THEN
                 message_string = 'gases are imported from the chemistry module and thus output '// &
                                  'of "' // TRIM( var ) // '" is not allowed'
-                CALL message( 'check_parameters', 'PA0653', 1, 2, 0, 6, 0 )
+                CALL message( 'check_parameters', 'SAL0063', 1, 2, 0, 6, 0 )
              ENDIF
              unit = '#/m3'
-
-          CASE ( 'LDSA' )
-             unit = 'mum2/cm3'
-
-          CASE ( 'PM0.1', 'PM2.5', 'PM10', 's_BC', 's_DU', 's_NH', 's_NO', 's_OC', 's_SO4', 's_SS' )
+! MODIFICATION: Added output cases for new trace metal species
+          CASE ( 's_PB', 's_HG', 's_NI', 's_CD', 's_AS', &
+                 's_PB_tra', 's_HG_tra', 's_NI_tra', 's_CD_tra', 's_AS_tra' )
              unit = 'kg/m3'
 
-          CASE ( 'N_UFP', 'Ntot' )
+          CASE ( 'LDSA', 'LDSA_tra' )
+             unit = 'mum2/cm3'
+
+          CASE ( 'PM0.1', 'PM2.5', 'PM10', 's_BC', 's_DU', 's_NH', 's_NO', 's_OC', 's_SO4', 's_SS',&
+                 'PM0.1_tra', 'PM2.5_tra', 'PM10_tra', 's_BC_tra', 's_DU_tra', 's_NH_tra',          &
+                 's_NO_tra', 's_OC_tra', 's_SO4_tra', 's_SS_tra' )
+             unit = 'kg/m3'
+
+          CASE ( 'N_UFP', 'Ntot', 'N_UFP_tra', 'Ntot_tra' )
              unit = '#/m3'
 
           CASE DEFAULT
@@ -10456,22 +11895,25 @@
 
  END SUBROUTINE salsa_check_data_output
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Check profile data output for salsa. Currently only for diagnostic variables
 !> Ntot, N_UFP, PM0.1, PM2.5, PM10 and LDSA
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_check_data_output_pr( var, var_count, unit, dopr_unit )
 
     USE arrays_3d,                                                                                 &
-        ONLY: zu
+        ONLY:  zu
 
     USE profil_parameter,                                                                          &
         ONLY:  dopr_index
 
     USE statistics,                                                                                &
-        ONLY:  hom, pr_palm, statistic_regions
+        ONLY:  hom,                                                                                &
+               pr_palm,                                                                            &
+               statistic_regions
 
     IMPLICIT NONE
 
@@ -10480,6 +11922,7 @@
     CHARACTER(LEN=*) ::  var        !<
 
     INTEGER(iwp) ::  var_count     !<
+
 
     IF ( var(1:6) /= 'salsa_' )  THEN
        unit = 'illegal'
@@ -10491,7 +11934,7 @@
        CASE( 'LDSA' )
           salsa_pr_count = salsa_pr_count + 1
           salsa_pr_index(salsa_pr_count) = 1
-          dopr_index(var_count) = pr_palm + salsa_pr_count
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
           dopr_unit = 'mum2/cm3'
           unit = dopr_unit
           hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
@@ -10499,7 +11942,7 @@
        CASE( 'N_UFP' )
           salsa_pr_count = salsa_pr_count + 1
           salsa_pr_index(salsa_pr_count) = 2
-          dopr_index(var_count) = pr_palm + salsa_pr_count
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
           dopr_unit = '#/m3'
           unit = dopr_unit
           hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
@@ -10507,7 +11950,7 @@
        CASE( 'Ntot' )
           salsa_pr_count = salsa_pr_count + 1
           salsa_pr_index(salsa_pr_count) = 3
-          dopr_index(var_count) = pr_palm + salsa_pr_count
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
           dopr_unit = '#/m3'
           unit = dopr_unit
           hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
@@ -10515,7 +11958,7 @@
        CASE( 'PM0.1' )
           salsa_pr_count = salsa_pr_count + 1
           salsa_pr_index(salsa_pr_count) = 4
-          dopr_index(var_count) = pr_palm + salsa_pr_count
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
           dopr_unit = 'kg/m3'
           unit = dopr_unit
           hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
@@ -10523,7 +11966,7 @@
        CASE( 'PM2.5' )
           salsa_pr_count = salsa_pr_count + 1
           salsa_pr_index(salsa_pr_count) = 5
-          dopr_index(var_count) = pr_palm + salsa_pr_count
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
           dopr_unit = 'kg/m3'
           unit = dopr_unit
           hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
@@ -10531,7 +11974,249 @@
        CASE( 'PM10' )
           salsa_pr_count = salsa_pr_count + 1
           salsa_pr_index(salsa_pr_count) = 6
-          dopr_index(var_count) = pr_palm + salsa_pr_count
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
+          dopr_unit = 'kg/m3'
+          unit = dopr_unit
+          hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
+
+       CASE( 's_SO4' )
+          salsa_pr_count = salsa_pr_count + 1
+          salsa_pr_index(salsa_pr_count) = 7
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
+          dopr_unit = 'kg/m3'
+          unit = dopr_unit
+          hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
+
+       CASE( 's_OC' )
+          salsa_pr_count = salsa_pr_count + 1
+          salsa_pr_index(salsa_pr_count) = 8
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
+          dopr_unit = 'kg/m3'
+          unit = dopr_unit
+          hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
+
+       CASE( 's_BC' )
+          salsa_pr_count = salsa_pr_count + 1
+          salsa_pr_index(salsa_pr_count) = 9
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
+          dopr_unit = 'kg/m3'
+          unit = dopr_unit
+          hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
+
+       CASE( 's_DU' )
+          salsa_pr_count = salsa_pr_count + 1
+          salsa_pr_index(salsa_pr_count) = 10
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
+          dopr_unit = 'kg/m3'
+          unit = dopr_unit
+          hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
+
+       CASE( 's_SS' )
+          salsa_pr_count = salsa_pr_count + 1
+          salsa_pr_index(salsa_pr_count) = 11
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
+          dopr_unit = 'kg/m3'
+          unit = dopr_unit
+          hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
+
+       CASE( 's_NO' )
+          salsa_pr_count = salsa_pr_count + 1
+          salsa_pr_index(salsa_pr_count) = 12
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
+          dopr_unit = 'kg/m3'
+          unit = dopr_unit
+          hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
+
+       CASE( 's_NH' )
+          salsa_pr_count = salsa_pr_count + 1
+          salsa_pr_index(salsa_pr_count) = 13
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
+          dopr_unit = 'kg/m3'
+          unit = dopr_unit
+          hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
+
+       CASE( 's_PB' )
+          salsa_pr_count = salsa_pr_count + 1
+          salsa_pr_index(salsa_pr_count) = 14
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
+          dopr_unit = 'kg/m3'
+          unit = dopr_unit
+          hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
+
+       CASE( 's_HG' )
+          salsa_pr_count = salsa_pr_count + 1
+          salsa_pr_index(salsa_pr_count) = 15
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
+          dopr_unit = 'kg/m3'
+          unit = dopr_unit
+          hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
+
+       CASE( 's_NI' )
+          salsa_pr_count = salsa_pr_count + 1
+          salsa_pr_index(salsa_pr_count) = 16
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
+          dopr_unit = 'kg/m3'
+          unit = dopr_unit
+          hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
+
+       CASE( 's_CD' )
+          salsa_pr_count = salsa_pr_count + 1
+          salsa_pr_index(salsa_pr_count) = 17
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
+          dopr_unit = 'kg/m3'
+          unit = dopr_unit
+          hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
+
+       CASE( 's_AS' )
+          salsa_pr_count = salsa_pr_count + 1
+          salsa_pr_index(salsa_pr_count) = 18
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
+          dopr_unit = 'kg/m3'
+          unit = dopr_unit
+          hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
+
+!
+!--    Traffic profile registrations
+       CASE( 'LDSA_tra' )
+          salsa_pr_count = salsa_pr_count + 1
+          salsa_pr_index(salsa_pr_count) = 19
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
+          dopr_unit = 'mum2/cm3'
+          unit = dopr_unit
+          hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
+
+       CASE( 'N_UFP_tra' )
+          salsa_pr_count = salsa_pr_count + 1
+          salsa_pr_index(salsa_pr_count) = 20
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
+          dopr_unit = '#/m3'
+          unit = dopr_unit
+          hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
+
+       CASE( 'Ntot_tra' )
+          salsa_pr_count = salsa_pr_count + 1
+          salsa_pr_index(salsa_pr_count) = 21
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
+          dopr_unit = '#/m3'
+          unit = dopr_unit
+          hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
+
+       CASE( 'PM0.1_tra' )
+          salsa_pr_count = salsa_pr_count + 1
+          salsa_pr_index(salsa_pr_count) = 22
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
+          dopr_unit = 'kg/m3'
+          unit = dopr_unit
+          hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
+
+       CASE( 'PM2.5_tra' )
+          salsa_pr_count = salsa_pr_count + 1
+          salsa_pr_index(salsa_pr_count) = 23
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
+          dopr_unit = 'kg/m3'
+          unit = dopr_unit
+          hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
+
+       CASE( 'PM10_tra' )
+          salsa_pr_count = salsa_pr_count + 1
+          salsa_pr_index(salsa_pr_count) = 24
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
+          dopr_unit = 'kg/m3'
+          unit = dopr_unit
+          hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
+
+       CASE( 's_SO4_tra' )
+          salsa_pr_count = salsa_pr_count + 1
+          salsa_pr_index(salsa_pr_count) = 25
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
+          dopr_unit = 'kg/m3'
+          unit = dopr_unit
+          hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
+
+       CASE( 's_OC_tra' )
+          salsa_pr_count = salsa_pr_count + 1
+          salsa_pr_index(salsa_pr_count) = 26
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
+          dopr_unit = 'kg/m3'
+          unit = dopr_unit
+          hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
+
+       CASE( 's_BC_tra' )
+          salsa_pr_count = salsa_pr_count + 1
+          salsa_pr_index(salsa_pr_count) = 27
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
+          dopr_unit = 'kg/m3'
+          unit = dopr_unit
+          hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
+
+       CASE( 's_DU_tra' )
+          salsa_pr_count = salsa_pr_count + 1
+          salsa_pr_index(salsa_pr_count) = 28
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
+          dopr_unit = 'kg/m3'
+          unit = dopr_unit
+          hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
+
+       CASE( 's_SS_tra' )
+          salsa_pr_count = salsa_pr_count + 1
+          salsa_pr_index(salsa_pr_count) = 29
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
+          dopr_unit = 'kg/m3'
+          unit = dopr_unit
+          hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
+
+       CASE( 's_NO_tra' )
+          salsa_pr_count = salsa_pr_count + 1
+          salsa_pr_index(salsa_pr_count) = 30
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
+          dopr_unit = 'kg/m3'
+          unit = dopr_unit
+          hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
+
+       CASE( 's_NH_tra' )
+          salsa_pr_count = salsa_pr_count + 1
+          salsa_pr_index(salsa_pr_count) = 31
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
+          dopr_unit = 'kg/m3'
+          unit = dopr_unit
+          hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
+
+       CASE( 's_PB_tra' )
+          salsa_pr_count = salsa_pr_count + 1
+          salsa_pr_index(salsa_pr_count) = 32
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
+          dopr_unit = 'kg/m3'
+          unit = dopr_unit
+          hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
+
+       CASE( 's_HG_tra' )
+          salsa_pr_count = salsa_pr_count + 1
+          salsa_pr_index(salsa_pr_count) = 33
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
+          dopr_unit = 'kg/m3'
+          unit = dopr_unit
+          hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
+
+       CASE( 's_NI_tra' )
+          salsa_pr_count = salsa_pr_count + 1
+          salsa_pr_index(salsa_pr_count) = 34
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
+          dopr_unit = 'kg/m3'
+          unit = dopr_unit
+          hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
+
+       CASE( 's_CD_tra' )
+          salsa_pr_count = salsa_pr_count + 1
+          salsa_pr_index(salsa_pr_count) = 35
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
+          dopr_unit = 'kg/m3'
+          unit = dopr_unit
+          hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
+
+       CASE( 's_AS_tra' )
+          salsa_pr_count = salsa_pr_count + 1
+          salsa_pr_index(salsa_pr_count) = 36
+          dopr_index(var_count) = pr_palm + max_pr_cs + max_pr_det + salsa_pr_count
           dopr_unit = 'kg/m3'
           unit = dopr_unit
           hom(:,2,dopr_index(var_count),:) = SPREAD( zu, 2, statistic_regions+1 )
@@ -10541,23 +12226,18 @@
 
     END SELECT
 
-
  END SUBROUTINE salsa_check_data_output_pr
 
-!-------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
 !> Description:
 !> Calculation of horizontally averaged profiles for salsa.
-!-------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_statistics( mode, sr, tn )
 
-    USE control_parameters,                                                                        &
-        ONLY:  max_pr_user
-
-    USE chem_modules,                                                                              &
-        ONLY:  max_pr_cs
-
     USE statistics,                                                                                &
-        ONLY:  pr_palm, rmask, sums_l
+        ONLY:  pr_palm,                                                                            &
+               rmask,                                                                              &
+               sums_l
 
     IMPLICIT NONE
 
@@ -10572,17 +12252,20 @@
     INTEGER(iwp) ::  k    !< loop index
     INTEGER(iwp) ::  sr   !< statistical region
     INTEGER(iwp) ::  tn   !< thread number
+    INTEGER(iwp) ::  found_index  !< index of chemical component for profile output
 
     REAL(wp) ::  df        !< For calculating LDSA: fraction of particles depositing in the alveolar
                            !< (or tracheobronchial) region of the lung. Depends on the particle size
     REAL(wp) ::  mean_d    !< Particle diameter in micrometres
     REAL(wp) ::  temp_bin  !< temporary variable
+    REAL(wp) ::  depo_fac  !< deposition factor for LDSA
+
 
     IF ( mode == 'profiles' )  THEN
        !$OMP DO
        DO  ii = 1, salsa_pr_count
 
-          ind = pr_palm + max_pr_user + max_pr_cs + ii
+          ind = pr_palm + max_pr_cs + max_pr_det + ii
 
           SELECT CASE( salsa_pr_index(ii) )
 
@@ -10693,6 +12376,498 @@
                       ENDDO
                    ENDDO
                 ENDDO
+             CASE( 7 )  ! s_SO4
+                IF ( index_so4 > 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nzt+1
+                            temp_bin = 0.0_wp
+                            DO  ic = ( index_so4-1 ) * nbins_aerosol + 1, index_so4 * nbins_aerosol
+                               temp_bin = temp_bin + aerosol_mass(ic)%conc(k,j,i)
+                            ENDDO
+                            sums_l(k,ind,tn) = sums_l(k,ind,tn) + temp_bin * rmask(j,i,sr) *      &
+                                              MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 22 ) )
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+
+             CASE( 8 )  ! s_OC
+                IF ( index_oc > 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nzt+1
+                            temp_bin = 0.0_wp
+                            DO  ic = ( index_oc-1 ) * nbins_aerosol + 1, index_oc * nbins_aerosol
+                               temp_bin = temp_bin + aerosol_mass(ic)%conc(k,j,i)
+                            ENDDO
+                            sums_l(k,ind,tn) = sums_l(k,ind,tn) + temp_bin * rmask(j,i,sr) *      &
+                                              MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 22 ) )
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+
+             CASE( 9 )  ! s_BC
+                IF ( index_bc > 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nzt+1
+                            temp_bin = 0.0_wp
+                            DO  ic = ( index_bc-1 ) * nbins_aerosol + 1, index_bc * nbins_aerosol
+                               temp_bin = temp_bin + aerosol_mass(ic)%conc(k,j,i)
+                            ENDDO
+                            sums_l(k,ind,tn) = sums_l(k,ind,tn) + temp_bin * rmask(j,i,sr) *      &
+                                              MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 22 ) )
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+
+             CASE( 10 )  ! s_DU
+                IF ( index_du > 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nzt+1
+                            temp_bin = 0.0_wp
+                            DO  ic = ( index_du-1 ) * nbins_aerosol + 1, index_du * nbins_aerosol
+                               temp_bin = temp_bin + aerosol_mass(ic)%conc(k,j,i)
+                            ENDDO
+                            sums_l(k,ind,tn) = sums_l(k,ind,tn) + temp_bin * rmask(j,i,sr) *      &
+                                              MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 22 ) )
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+
+             CASE( 11 )  ! s_SS
+                IF ( index_ss > 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nzt+1
+                            temp_bin = 0.0_wp
+                            DO  ic = ( index_ss-1 ) * nbins_aerosol + 1, index_ss * nbins_aerosol
+                               temp_bin = temp_bin + aerosol_mass(ic)%conc(k,j,i)
+                            ENDDO
+                            sums_l(k,ind,tn) = sums_l(k,ind,tn) + temp_bin * rmask(j,i,sr) *      &
+                                              MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 22 ) )
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+
+             CASE( 12 )  ! s_NO
+                IF ( index_no > 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nzt+1
+                            temp_bin = 0.0_wp
+                            DO  ic = ( index_no-1 ) * nbins_aerosol + 1, index_no * nbins_aerosol
+                               temp_bin = temp_bin + aerosol_mass(ic)%conc(k,j,i)
+                            ENDDO
+                            sums_l(k,ind,tn) = sums_l(k,ind,tn) + temp_bin * rmask(j,i,sr) *      &
+                                              MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 22 ) )
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+
+             CASE( 13 )  ! s_NH
+                IF ( index_nh > 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nzt+1
+                            temp_bin = 0.0_wp
+                            DO  ic = ( index_nh-1 ) * nbins_aerosol + 1, index_nh * nbins_aerosol
+                               temp_bin = temp_bin + aerosol_mass(ic)%conc(k,j,i)
+                            ENDDO
+                            sums_l(k,ind,tn) = sums_l(k,ind,tn) + temp_bin * rmask(j,i,sr) *      &
+                                              MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 22 ) )
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+
+! MODIFICATION: Added profile statistics for new trace metal species
+             CASE( 14 )  ! s_PB
+                IF ( index_pb > 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nzt+1
+                            temp_bin = 0.0_wp
+                            DO  ic = ( index_pb-1 ) * nbins_aerosol + 1, index_pb * nbins_aerosol
+                               temp_bin = temp_bin + aerosol_mass(ic)%conc(k,j,i)
+                            ENDDO
+                            sums_l(k,ind,tn) = sums_l(k,ind,tn) + temp_bin * rmask(j,i,sr) *      &
+                                              MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 22 ) )
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+
+             CASE( 15 )  ! s_HG
+                IF ( index_hg > 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nzt+1
+                            temp_bin = 0.0_wp
+                            DO  ic = ( index_hg-1 ) * nbins_aerosol + 1, index_hg * nbins_aerosol
+                               temp_bin = temp_bin + aerosol_mass(ic)%conc(k,j,i)
+                            ENDDO
+                            sums_l(k,ind,tn) = sums_l(k,ind,tn) + temp_bin * rmask(j,i,sr) *      &
+                                              MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 22 ) )
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+
+             CASE( 16 )  ! s_NI
+                IF ( index_ni > 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nzt+1
+                            temp_bin = 0.0_wp
+                            DO  ic = ( index_ni-1 ) * nbins_aerosol + 1, index_ni * nbins_aerosol
+                               temp_bin = temp_bin + aerosol_mass(ic)%conc(k,j,i)
+                            ENDDO
+                            sums_l(k,ind,tn) = sums_l(k,ind,tn) + temp_bin * rmask(j,i,sr) *      &
+                                              MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 22 ) )
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+
+             CASE( 17 )  ! s_CD
+                IF ( index_cd > 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nzt+1
+                            temp_bin = 0.0_wp
+                            DO  ic = ( index_cd-1 ) * nbins_aerosol + 1, index_cd * nbins_aerosol
+                               temp_bin = temp_bin + aerosol_mass(ic)%conc(k,j,i)
+                            ENDDO
+                            sums_l(k,ind,tn) = sums_l(k,ind,tn) + temp_bin * rmask(j,i,sr) *      &
+                                              MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 22 ) )
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+
+             CASE( 18 )  ! s_AS
+                IF ( index_as > 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nzt+1
+                            temp_bin = 0.0_wp
+                            DO  ic = ( index_as-1 ) * nbins_aerosol + 1, index_as * nbins_aerosol
+                               temp_bin = temp_bin + aerosol_mass(ic)%conc(k,j,i)
+                            ENDDO
+                            sums_l(k,ind,tn) = sums_l(k,ind,tn) + temp_bin * rmask(j,i,sr) *      &
+                                              MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 22 ) )
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+!
+!--          Traffic profile indices (19-29)
+             CASE( 19 )  ! LDSA_tra
+                DO  i = nxl, nxr
+                   DO  j = nys, nyn
+                      DO  k = nzb, nzt+1
+                         temp_bin = 0.0_wp
+                         DO  ib = 1, nbins_aerosol
+                            mean_d = 1.0E+6_wp * ra_dry(k,j,i,ib) * 2.0_wp
+                            IF ( mean_d > 0.0_wp )  THEN
+                               depo_fac = ( 0.058_wp + 0.015_wp * EXP( -0.5_wp * ( LOG10( mean_d ) &
+                                                          + 1.28_wp )**2 ) + 0.202_wp * EXP(       &
+                                                           -0.5_wp * ( LOG10( mean_d ) - 1.70_wp )**2 ) )
+                            ELSE
+                               depo_fac = 0.0_wp
+                            ENDIF
+                            temp_bin = temp_bin + depo_fac * aerosol_number_tra(ib)%conc(k,j,i) *  &
+                                       1.0E-12_wp * ( 0.5_wp * ra_dry(k,j,i,ib) * 2.0_wp )**2 * 4.0_wp * pi
+                         ENDDO
+                         sums_l(k,ind,tn) = sums_l(k,ind,tn) + temp_bin * rmask(j,i,sr) *          &
+                                           MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 22 ) )
+                      ENDDO
+                   ENDDO
+                ENDDO
+
+             CASE( 20 )  ! N_UFP_tra
+                DO  i = nxl, nxr
+                   DO  j = nys, nyn
+                      DO  k = nzb, nzt+1
+                         temp_bin = 0.0_wp
+                         DO  ib = 1, nbins_aerosol
+                            IF ( 2.0_wp * ra_dry(k,j,i,ib) <= 0.1E-6_wp )  THEN
+                               temp_bin = temp_bin + aerosol_number_tra(ib)%conc(k,j,i)
+                            ENDIF
+                         ENDDO
+                         sums_l(k,ind,tn) = sums_l(k,ind,tn) + temp_bin * rmask(j,i,sr) *          &
+                                           MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 22 ) )
+                      ENDDO
+                   ENDDO
+                ENDDO
+
+             CASE( 21 )  ! Ntot_tra
+                DO  i = nxl, nxr
+                   DO  j = nys, nyn
+                      DO  k = nzb, nzt+1
+                         temp_bin = 0.0_wp
+                         DO  ib = 1, nbins_aerosol
+                            temp_bin = temp_bin + aerosol_number_tra(ib)%conc(k,j,i)
+                         ENDDO
+                         sums_l(k,ind,tn) = sums_l(k,ind,tn) + temp_bin * rmask(j,i,sr) *          &
+                                           MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 22 ) )
+                      ENDDO
+                   ENDDO
+                ENDDO
+
+             CASE( 22 )  ! PM0.1_tra
+                DO  i = nxl, nxr
+                   DO  j = nys, nyn
+                      DO  k = nzb, nzt+1
+                         temp_bin = 0.0_wp
+                         DO  ib = 1, nbins_aerosol
+                            IF ( 2.0_wp * ra_dry(k,j,i,ib) <= 0.1E-6_wp )  THEN
+                               DO  ic = ib, nbins_aerosol * ncc, nbins_aerosol
+                                  temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                               ENDDO
+                            ENDIF
+                         ENDDO
+                         sums_l(k,ind,tn) = sums_l(k,ind,tn) + temp_bin * rmask(j,i,sr) *          &
+                                           MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 22 ) )
+                      ENDDO
+                   ENDDO
+                ENDDO
+
+             CASE( 23 )  ! PM2.5_tra
+                DO  i = nxl, nxr
+                   DO  j = nys, nyn
+                      DO  k = nzb, nzt+1
+                         temp_bin = 0.0_wp
+                         DO  ib = 1, nbins_aerosol
+                            IF ( 2.0_wp * ra_dry(k,j,i,ib) <= 2.5E-6_wp )  THEN
+                               DO  ic = ib, nbins_aerosol * ncc, nbins_aerosol
+                                  temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                               ENDDO
+                            ENDIF
+                         ENDDO
+                         sums_l(k,ind,tn) = sums_l(k,ind,tn) + temp_bin * rmask(j,i,sr) *          &
+                                           MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 22 ) )
+                      ENDDO
+                   ENDDO
+                ENDDO
+
+             CASE( 24 )  ! PM10_tra
+                DO  i = nxl, nxr
+                   DO  j = nys, nyn
+                      DO  k = nzb, nzt+1
+                         temp_bin = 0.0_wp
+                         DO  ib = 1, nbins_aerosol
+                            IF ( 2.0_wp * ra_dry(k,j,i,ib) <= 10.0E-6_wp )  THEN
+                               DO  ic = ib, nbins_aerosol * ncc, nbins_aerosol
+                                  temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                               ENDDO
+                            ENDIF
+                         ENDDO
+                         sums_l(k,ind,tn) = sums_l(k,ind,tn) + temp_bin * rmask(j,i,sr) *          &
+                                           MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 22 ) )
+                      ENDDO
+                   ENDDO
+                ENDDO
+
+             CASE( 25 )  ! s_SO4_tra
+                IF ( index_so4 > 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nzt+1
+                            temp_bin = 0.0_wp
+                            DO  ic = ( index_so4-1 ) * nbins_aerosol + 1, index_so4 * nbins_aerosol
+                               temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                            ENDDO
+                            sums_l(k,ind,tn) = sums_l(k,ind,tn) + temp_bin * rmask(j,i,sr) *      &
+                                              MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 22 ) )
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+
+             CASE( 26 )  ! s_OC_tra
+                IF ( index_oc > 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nzt+1
+                            temp_bin = 0.0_wp
+                            DO  ic = ( index_oc-1 ) * nbins_aerosol + 1, index_oc * nbins_aerosol
+                               temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                            ENDDO
+                            sums_l(k,ind,tn) = sums_l(k,ind,tn) + temp_bin * rmask(j,i,sr) *      &
+                                              MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 22 ) )
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+
+             CASE( 27 )  ! s_BC_tra
+                IF ( index_bc > 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nzt+1
+                            temp_bin = 0.0_wp
+                            DO  ic = ( index_bc-1 ) * nbins_aerosol + 1, index_bc * nbins_aerosol
+                               temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                            ENDDO
+                            sums_l(k,ind,tn) = sums_l(k,ind,tn) + temp_bin * rmask(j,i,sr) *      &
+                                              MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 22 ) )
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+
+             CASE( 28 )  ! s_DU_tra
+                IF ( index_du > 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nzt+1
+                            temp_bin = 0.0_wp
+                            DO  ic = ( index_du-1 ) * nbins_aerosol + 1, index_du * nbins_aerosol
+                               temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                            ENDDO
+                            sums_l(k,ind,tn) = sums_l(k,ind,tn) + temp_bin * rmask(j,i,sr) *      &
+                                              MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 22 ) )
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+
+             CASE( 29 )  ! s_SS_tra
+                IF ( index_ss > 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nzt+1
+                            temp_bin = 0.0_wp
+                            DO  ic = ( index_ss-1 ) * nbins_aerosol + 1, index_ss * nbins_aerosol
+                               temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                            ENDDO
+                            sums_l(k,ind,tn) = sums_l(k,ind,tn) + temp_bin * rmask(j,i,sr) *      &
+                                              MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 22 ) )
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+
+             CASE( 30 )  ! s_NO_tra
+                IF ( index_no > 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nzt+1
+                            temp_bin = 0.0_wp
+                            DO  ic = ( index_no-1 ) * nbins_aerosol + 1, index_no * nbins_aerosol
+                               temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                            ENDDO
+                            sums_l(k,ind,tn) = sums_l(k,ind,tn) + temp_bin * rmask(j,i,sr) *      &
+                                              MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 22 ) )
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+
+             CASE( 31 )  ! s_NH_tra
+                IF ( index_nh > 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nzt+1
+                            temp_bin = 0.0_wp
+                            DO  ic = ( index_nh-1 ) * nbins_aerosol + 1, index_nh * nbins_aerosol
+                               temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                            ENDDO
+                            sums_l(k,ind,tn) = sums_l(k,ind,tn) + temp_bin * rmask(j,i,sr) *      &
+                                              MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 22 ) )
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+
+             CASE( 32 )  ! s_PB_tra
+                IF ( index_pb > 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nzt+1
+                            temp_bin = 0.0_wp
+                            DO  ic = ( index_pb-1 ) * nbins_aerosol + 1, index_pb * nbins_aerosol
+                               temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                            ENDDO
+                            sums_l(k,ind,tn) = sums_l(k,ind,tn) + temp_bin * rmask(j,i,sr) *      &
+                                              MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 22 ) )
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+
+             CASE( 33 )  ! s_HG_tra
+                IF ( index_hg > 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nzt+1
+                            temp_bin = 0.0_wp
+                            DO  ic = ( index_hg-1 ) * nbins_aerosol + 1, index_hg * nbins_aerosol
+                               temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                            ENDDO
+                            sums_l(k,ind,tn) = sums_l(k,ind,tn) + temp_bin * rmask(j,i,sr) *      &
+                                              MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 22 ) )
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+
+             CASE( 34 )  ! s_NI_tra
+                IF ( index_ni > 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nzt+1
+                            temp_bin = 0.0_wp
+                            DO  ic = ( index_ni-1 ) * nbins_aerosol + 1, index_ni * nbins_aerosol
+                               temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                            ENDDO
+                            sums_l(k,ind,tn) = sums_l(k,ind,tn) + temp_bin * rmask(j,i,sr) *      &
+                                              MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 22 ) )
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+
+             CASE( 35 )  ! s_CD_tra
+                IF ( index_cd > 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nzt+1
+                            temp_bin = 0.0_wp
+                            DO  ic = ( index_cd-1 ) * nbins_aerosol + 1, index_cd * nbins_aerosol
+                               temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                            ENDDO
+                            sums_l(k,ind,tn) = sums_l(k,ind,tn) + temp_bin * rmask(j,i,sr) *      &
+                                              MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 22 ) )
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+
+             CASE( 36 )  ! s_AS_tra
+                IF ( index_as > 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nzt+1
+                            temp_bin = 0.0_wp
+                            DO  ic = ( index_as-1 ) * nbins_aerosol + 1, index_as * nbins_aerosol
+                               temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                            ENDDO
+                            sums_l(k,ind,tn) = sums_l(k,ind,tn) + temp_bin * rmask(j,i,sr) *      &
+                                              MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 22 ) )
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
 
           END SELECT
        ENDDO
@@ -10705,15 +12880,15 @@
  END SUBROUTINE salsa_statistics
 
 
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
 !
 ! Description:
 ! ------------
 !> Subroutine for averaging 3D data
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_3d_data_averaging( mode, variable )
 
-    USE control_parameters,                                                                        &
+    USE control_parameters,                                                                        \
         ONLY:  average_count_3d
 
     IMPLICIT NONE
@@ -10730,6 +12905,8 @@
     INTEGER(iwp) ::  j            !<
     INTEGER(iwp) ::  k            !<
 
+    LOGICAL ::  found    !< flag if output variable is found
+
     REAL(wp) ::  df       !< For calculating LDSA: fraction of particles depositing in the alveolar
                           !< (or tracheobronchial) region of the lung. Depends on the particle size
     REAL(wp) ::  mean_d   !< Particle diameter in micrometres
@@ -10737,21 +12914,36 @@
 
     REAL(wp), DIMENSION(:,:,:), POINTER ::  to_be_resorted  !< points to selected output variable
 
+
     temp_bin = 0.0_wp
 
     IF ( mode == 'allocate' )  THEN
 
        IF ( variable(7:11) ==  'N_bin' )  THEN
-          IF ( .NOT. ALLOCATED( nbins_av ) )  THEN
-             ALLOCATE( nbins_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg,nbins_aerosol) )
+          IF ( variable(LEN_TRIM(variable)-3:) == '_tra' )  THEN
+             IF ( .NOT. ALLOCATED( nbins_av_tra ) )  THEN
+                ALLOCATE( nbins_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg,nbins_aerosol) )
+             ENDIF
+             nbins_av_tra = 0.0_wp
+          ELSE
+             IF ( .NOT. ALLOCATED( nbins_av ) )  THEN
+                ALLOCATE( nbins_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg,nbins_aerosol) )
+             ENDIF
+             nbins_av = 0.0_wp
           ENDIF
-          nbins_av = 0.0_wp
 
        ELSEIF ( variable(7:11) ==  'm_bin' )  THEN
-          IF ( .NOT. ALLOCATED( mbins_av ) )  THEN
-             ALLOCATE( mbins_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg,nbins_aerosol) )
+          IF ( variable(LEN_TRIM(variable)-3:) == '_tra' )  THEN
+             IF ( .NOT. ALLOCATED( mbins_av_tra ) )  THEN
+                ALLOCATE( mbins_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg,nbins_aerosol) )
+             ENDIF
+             mbins_av_tra = 0.0_wp
+          ELSE
+             IF ( .NOT. ALLOCATED( mbins_av ) )  THEN
+                ALLOCATE( mbins_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg,nbins_aerosol) )
+             ENDIF
+             mbins_av = 0.0_wp
           ENDIF
-          mbins_av = 0.0_wp
 
        ELSE
 
@@ -10762,6 +12954,12 @@
                    ALLOCATE( salsa_gases_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg,ngases_salsa) )
                 ENDIF
                 salsa_gases_av = 0.0_wp
+! MODIFICATION: Added averaging for new trace metal species
+             CASE ( 's_PB', 's_HG', 's_NI', 's_CD', 's_AS' )
+                IF ( .NOT. ALLOCATED( s_mass_av ) )  THEN
+                   ALLOCATE( s_mass_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg,ncomponents_mass) )
+                ENDIF
+                s_mass_av = 0.0_wp
 
              CASE ( 'LDSA' )
                 IF ( .NOT. ALLOCATED( ldsa_av ) )  THEN
@@ -10799,9 +12997,45 @@
                 ENDIF
                 pm10_av = 0.0_wp
 
+             CASE ( 'LDSA_tra' )
+                IF ( .NOT. ALLOCATED( ldsa_av_tra ) )  THEN
+                   ALLOCATE( ldsa_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
+                ENDIF
+                ldsa_av_tra = 0.0_wp
+
+             CASE ( 'N_UFP_tra' )
+                IF ( .NOT. ALLOCATED( nufp_av_tra ) )  THEN
+                   ALLOCATE( nufp_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
+                ENDIF
+                nufp_av_tra = 0.0_wp
+
+             CASE ( 'Ntot_tra' )
+                IF ( .NOT. ALLOCATED( ntot_av_tra ) )  THEN
+                   ALLOCATE( ntot_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
+                ENDIF
+                ntot_av_tra = 0.0_wp
+
+             CASE ( 'PM0.1_tra' )
+                IF ( .NOT. ALLOCATED( pm01_av_tra ) )  THEN
+                   ALLOCATE( pm01_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
+                ENDIF
+                pm01_av_tra = 0.0_wp
+
+             CASE ( 'PM2.5_tra' )
+                IF ( .NOT. ALLOCATED( pm25_av_tra ) )  THEN
+                   ALLOCATE( pm25_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
+                ENDIF
+                pm25_av_tra = 0.0_wp
+
+             CASE ( 'PM10_tra' )
+                IF ( .NOT. ALLOCATED( pm10_av_tra ) )  THEN
+                   ALLOCATE( pm10_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
+                ENDIF
+                pm10_av_tra = 0.0_wp
+
              CASE ( 's_BC', 's_DU', 's_NH', 's_NO', 's_OC', 's_SO4', 's_SS' )
                 IF ( .NOT. ALLOCATED( s_mass_av ) )  THEN
-                   ALLOCATE( s_mass_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg,ncomponents_mass+1) )
+                   ALLOCATE( s_mass_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg,ncomponents_mass) )
                 ENDIF
                 s_mass_av = 0.0_wp
 
@@ -10821,12 +13055,26 @@
     ELSEIF ( mode == 'sum' )  THEN
 
        IF ( variable(7:11) ==  'N_bin' )  THEN
-          IF ( ALLOCATED( nbins_av ) )  THEN
+          IF ( variable(LEN_TRIM(variable)-3:) == '_tra' )  THEN
+             IF ( ALLOCATED( nbins_av_tra ) )  THEN
+                READ( variable(12:LEN_TRIM(variable)-4),* ) char_to_int
+                IF ( char_to_int >= 1  .AND. char_to_int <= SUM( nbin ) )  THEN
+                   ib = char_to_int
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nzt+1
+                            nbins_av_tra(k,j,i,ib) = nbins_av_tra(k,j,i,ib) + aerosol_number_tra(ib)%conc(k,j,i)
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+             ENDIF
+          ELSEIF ( ALLOCATED( nbins_av ) )  THEN
              READ( variable(12:),* ) char_to_int
              IF ( char_to_int >= 1  .AND. char_to_int <= SUM( nbin ) )  THEN
                 ib = char_to_int
-                DO  i = nxlg, nxrg
-                   DO  j = nysg, nyng
+                DO  i = nxl, nxr
+                   DO  j = nys, nyn
                       DO  k = nzb, nzt+1
                          nbins_av(k,j,i,ib) = nbins_av(k,j,i,ib) + aerosol_number(ib)%conc(k,j,i)
                       ENDDO
@@ -10836,12 +13084,30 @@
           ENDIF
 
        ELSEIF ( variable(7:11) ==  'm_bin' )  THEN
-          IF ( ALLOCATED( mbins_av ) )  THEN
+          IF ( variable(LEN_TRIM(variable)-3:) == '_tra' )  THEN
+             IF ( ALLOCATED( mbins_av_tra ) )  THEN
+                READ( variable(12:LEN_TRIM(variable)-4),* ) char_to_int
+                IF ( char_to_int >= 1  .AND. char_to_int <= SUM( nbin ) )  THEN
+                   ib = char_to_int
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nzt+1
+                            temp_bin = 0.0_wp
+                            DO  ic = ib, nbins_aerosol * ncomponents_mass, nbins_aerosol
+                               temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                            ENDDO
+                            mbins_av_tra(k,j,i,ib) = mbins_av_tra(k,j,i,ib) + temp_bin
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+             ENDIF
+          ELSEIF ( ALLOCATED( mbins_av ) )  THEN
              READ( variable(12:),* ) char_to_int
              IF ( char_to_int >= 1  .AND. char_to_int <= SUM( nbin ) )  THEN
                 ib = char_to_int
-                DO  i = nxlg, nxrg
-                   DO  j = nysg, nyng
+                DO  i = nxl, nxr
+                   DO  j = nys, nyn
                       DO  k = nzb, nzt+1
                          temp_bin = 0.0_wp
                          DO  ic = ib, nbins_aerosol * ncomponents_mass, nbins_aerosol
@@ -10877,8 +13143,8 @@
 
                    END SELECT
 
-                   DO  i = nxlg, nxrg
-                      DO  j = nysg, nyng
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
                          DO  k = nzb, nzt+1
                             salsa_gases_av(k,j,i,found_index) = salsa_gases_av(k,j,i,found_index)  &
                                                                 + salsa_gas(found_index)%conc(k,j,i)
@@ -10886,11 +13152,28 @@
                       ENDDO
                    ENDDO
                 ENDIF
+! MODIFICATION: Added averaging for new trace metal species
+             CASE ( 's_PB', 's_HG', 's_NI', 's_CD', 's_AS' )
+                IF ( ALLOCATED( s_mass_av ) )  THEN
+                   IF ( is_used( prtcl, TRIM( variable(9:) ) ) )  THEN  ! 9: remove salsa_s_
+                      found_index = get_index( prtcl, TRIM( variable(9:) ) )
+                      DO  i = nxl, nxr
+                         DO  j = nys, nyn
+                            DO  k = nzb, nzt+1
+                               DO  ic = ( found_index-1 ) * nbins_aerosol + 1, found_index * nbins_aerosol
+                                  s_mass_av(k,j,i,found_index) = s_mass_av(k,j,i,found_index) +    &
+                                                                 aerosol_mass(ic)%conc(k,j,i)
+                               ENDDO
+                            ENDDO
+                         ENDDO
+                      ENDDO
+                   ENDIF
+                ENDIF
 
              CASE ( 'LDSA' )
                 IF ( ALLOCATED( ldsa_av ) )  THEN
-                   DO  i = nxlg, nxrg
-                      DO  j = nysg, nyng
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
                          DO  k = nzb, nzt+1
                             temp_bin = 0.0_wp
                             DO  ib = 1, nbins_aerosol
@@ -10913,10 +13196,34 @@
                    ENDDO
                 ENDIF
 
+             CASE ( 'LDSA_tra' )
+                IF ( ALLOCATED( ldsa_av_tra ) )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nzt+1
+                            temp_bin = 0.0_wp
+                            DO  ib = 1, nbins_aerosol
+                               mean_d = 1.0E+6_wp * ra_dry(k,j,i,ib) * 2.0_wp
+                               IF ( mean_d > 0.0_wp )  THEN
+                                  df = ( 0.058_wp + 0.015_wp * EXP( -0.5_wp * ( LOG10( mean_d ) &
+                                                        + 1.28_wp )**2 ) + 0.202_wp * EXP(       &
+                                                        -0.5_wp * ( LOG10( mean_d ) - 1.70_wp )**2 ) )
+                               ELSE
+                                  df = 0.0_wp
+                               ENDIF
+                               temp_bin = temp_bin + df * aerosol_number_tra(ib)%conc(k,j,i) *     &
+                                          1.0E-12_wp * ( 0.5_wp * ra_dry(k,j,i,ib) * 2.0_wp )**2 * 4.0_wp * pi
+                            ENDDO
+                            ldsa_av_tra(k,j,i) = ldsa_av_tra(k,j,i) + temp_bin
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+
              CASE ( 'N_UFP' )
                 IF ( ALLOCATED( nufp_av ) )  THEN
-                   DO  i = nxlg, nxrg
-                      DO  j = nysg, nyng
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
                          DO  k = nzb, nzt+1
                             temp_bin = 0.0_wp
                             DO  ib = 1, nbins_aerosol
@@ -10930,10 +13237,27 @@
                    ENDDO
                 ENDIF
 
+             CASE ( 'N_UFP_tra' )
+                IF ( ALLOCATED( nufp_av_tra ) )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nzt+1
+                            temp_bin = 0.0_wp
+                            DO  ib = 1, nbins_aerosol
+                               IF ( 2.0_wp * ra_dry(k,j,i,ib) <= 0.1E-6_wp )  THEN
+                                  temp_bin = temp_bin + aerosol_number_tra(ib)%conc(k,j,i)
+                               ENDIF
+                            ENDDO
+                            nufp_av_tra(k,j,i) = nufp_av_tra(k,j,i) + temp_bin
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+
              CASE ( 'Ntot' )
                IF ( ALLOCATED( ntot_av ) )  THEN
-                   DO  i = nxlg, nxrg
-                      DO  j = nysg, nyng
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
                          DO  k = nzb, nzt+1
                             DO  ib = 1, nbins_aerosol
                                ntot_av(k,j,i) = ntot_av(k,j,i) + aerosol_number(ib)%conc(k,j,i)
@@ -10943,10 +13267,23 @@
                    ENDDO
                 ENDIF
 
+             CASE ( 'Ntot_tra' )
+               IF ( ALLOCATED( ntot_av_tra ) )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nzt+1
+                            DO  ib = 1, nbins_aerosol
+                               ntot_av_tra(k,j,i) = ntot_av_tra(k,j,i) + aerosol_number_tra(ib)%conc(k,j,i)
+                            ENDDO
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+
              CASE ( 'PM0.1' )
                 IF ( ALLOCATED( pm01_av ) )  THEN
-                   DO  i = nxlg, nxrg
-                      DO  j = nysg, nyng
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
                          DO  k = nzb, nzt+1
                             temp_bin = 0.0_wp
                             DO  ib = 1, nbins_aerosol
@@ -10962,10 +13299,29 @@
                    ENDDO
                 ENDIF
 
+             CASE ( 'PM0.1_tra' )
+                IF ( ALLOCATED( pm01_av_tra ) )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nzt+1
+                            temp_bin = 0.0_wp
+                            DO  ib = 1, nbins_aerosol
+                               IF ( 2.0_wp * ra_dry(k,j,i,ib) <= 0.1E-6_wp )  THEN
+                                  DO  ic = ib, nbins_aerosol * ncc, nbins_aerosol
+                                     temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                                  ENDDO
+                               ENDIF
+                            ENDDO
+                            pm01_av_tra(k,j,i) = pm01_av_tra(k,j,i) + temp_bin
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+
              CASE ( 'PM2.5' )
                 IF ( ALLOCATED( pm25_av ) )  THEN
-                   DO  i = nxlg, nxrg
-                      DO  j = nysg, nyng
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
                          DO  k = nzb, nzt+1
                             temp_bin = 0.0_wp
                             DO  ib = 1, nbins_aerosol
@@ -10981,10 +13337,29 @@
                    ENDDO
                 ENDIF
 
+             CASE ( 'PM2.5_tra' )
+                IF ( ALLOCATED( pm25_av_tra ) )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nzt+1
+                            temp_bin = 0.0_wp
+                            DO  ib = 1, nbins_aerosol
+                               IF ( 2.0_wp * ra_dry(k,j,i,ib) <= 2.5E-6_wp )  THEN
+                                  DO  ic = ib, nbins_aerosol * ncc, nbins_aerosol
+                                     temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                                  ENDDO
+                               ENDIF
+                            ENDDO
+                            pm25_av_tra(k,j,i) = pm25_av_tra(k,j,i) + temp_bin
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+
              CASE ( 'PM10' )
                 IF ( ALLOCATED( pm10_av ) )  THEN
-                   DO  i = nxlg, nxrg
-                      DO  j = nysg, nyng
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
                          DO  k = nzb, nzt+1
                             temp_bin = 0.0_wp
                             DO  ib = 1, nbins_aerosol
@@ -11000,12 +13375,31 @@
                    ENDDO
                 ENDIF
 
+             CASE ( 'PM10_tra' )
+                IF ( ALLOCATED( pm10_av_tra ) )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nzt+1
+                            temp_bin = 0.0_wp
+                            DO  ib = 1, nbins_aerosol
+                               IF ( 2.0_wp * ra_dry(k,j,i,ib) <= 10.0E-6_wp )  THEN
+                                  DO  ic = ib, nbins_aerosol * ncc, nbins_aerosol
+                                     temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                                  ENDDO
+                               ENDIF
+                            ENDDO
+                            pm10_av_tra(k,j,i) = pm10_av_tra(k,j,i) + temp_bin
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+
              CASE ( 's_BC', 's_DU', 's_NH', 's_NO', 's_OC', 's_SO4', 's_SS' )
                 IF ( ALLOCATED( s_mass_av ) )  THEN
                    IF ( is_used( prtcl, TRIM( variable(9:) ) ) )  THEN  ! 9: remove salsa_s_
                       found_index = get_index( prtcl, TRIM( variable(9:) ) )
-                      DO  i = nxlg, nxrg
-                         DO  j = nysg, nyng
+                      DO  i = nxl, nxr
+                         DO  j = nys, nyn
                             DO  k = nzb, nzt+1
                                DO  ic = ( found_index-1 ) * nbins_aerosol + 1, found_index * nbins_aerosol
                                   s_mass_av(k,j,i,found_index) = s_mass_av(k,j,i,found_index) +    &
@@ -11021,8 +13415,8 @@
                 IF ( ALLOCATED( s_H2O_av ) )  THEN
                    found_index = get_index( prtcl,'H2O' )
                    to_be_resorted => s_h2o_av
-                   DO  i = nxlg, nxrg
-                      DO  j = nysg, nyng
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
                          DO  k = nzb, nzt+1
                             DO  ic = ( found_index-1 ) * nbins_aerosol + 1, found_index * nbins_aerosol
                                s_h2o_av(k,j,i) = s_h2o_av(k,j,i) + aerosol_mass(ic)%conc(k,j,i)
@@ -11042,12 +13436,26 @@
     ELSEIF ( mode == 'average' )  THEN
 
        IF ( variable(7:11) ==  'N_bin' )  THEN
-          IF ( ALLOCATED( nbins_av ) )  THEN
+          IF ( variable(LEN_TRIM(variable)-3:) == '_tra' )  THEN
+             IF ( ALLOCATED( nbins_av_tra ) )  THEN
+                READ( variable(12:LEN_TRIM(variable)-4),* ) char_to_int
+                IF ( char_to_int >= 1  .AND. char_to_int <= SUM( nbin ) )  THEN
+                   ib = char_to_int
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nzt+1
+                            nbins_av_tra(k,j,i,ib) = nbins_av_tra(k,j,i,ib) / REAL( average_count_3d, KIND=wp )
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+             ENDIF
+          ELSEIF ( ALLOCATED( nbins_av ) )  THEN
              READ( variable(12:),* ) char_to_int
              IF ( char_to_int >= 1  .AND. char_to_int <= SUM( nbin ) )  THEN
                 ib = char_to_int
-                DO  i = nxlg, nxrg
-                   DO  j = nysg, nyng
+                DO  i = nxl, nxr
+                   DO  j = nys, nyn
                       DO  k = nzb, nzt+1
                          nbins_av(k,j,i,ib) = nbins_av(k,j,i,ib) / REAL( average_count_3d, KIND=wp )
                       ENDDO
@@ -11057,12 +13465,26 @@
           ENDIF
 
        ELSEIF ( variable(7:11) ==  'm_bin' )  THEN
-          IF ( ALLOCATED( mbins_av ) )  THEN
+          IF ( variable(LEN_TRIM(variable)-3:) == '_tra' )  THEN
+             IF ( ALLOCATED( mbins_av_tra ) )  THEN
+                READ( variable(12:LEN_TRIM(variable)-4),* ) char_to_int
+                IF ( char_to_int >= 1  .AND. char_to_int <= SUM( nbin ) )  THEN
+                   ib = char_to_int
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nzt+1
+                            mbins_av_tra(k,j,i,ib) = mbins_av_tra(k,j,i,ib) / REAL( average_count_3d, KIND=wp)
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+             ENDIF
+          ELSEIF ( ALLOCATED( mbins_av ) )  THEN
              READ( variable(12:),* ) char_to_int
              IF ( char_to_int >= 1  .AND. char_to_int <= SUM( nbin ) )  THEN
                 ib = char_to_int
-                DO  i = nxlg, nxrg
-                   DO  j = nysg, nyng
+                DO  i = nxl, nxr
+                   DO  j = nys, nyn
                       DO  k = nzb, nzt+1
                          mbins_av(k,j,i,ib) = mbins_av(k,j,i,ib) / REAL( average_count_3d, KIND=wp)
                       ENDDO
@@ -11087,8 +13509,8 @@
                    ELSEIF ( TRIM( variable(9:) ) == 'OCSV' )  THEN
                       found_index = 5
                    ENDIF
-                   DO  i = nxlg, nxrg
-                      DO  j = nysg, nyng
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
                          DO  k = nzb, nzt+1
                             salsa_gases_av(k,j,i,found_index) = salsa_gases_av(k,j,i,found_index)  &
                                                                 / REAL( average_count_3d, KIND=wp )
@@ -11096,11 +13518,26 @@
                       ENDDO
                    ENDDO
                 ENDIF
+! MODIFICATION: Added averaging for new trace metal species
+             CASE ( 's_PB', 's_HG', 's_NI', 's_CD', 's_AS' )
+                IF ( ALLOCATED( s_mass_av ) )  THEN
+                   IF ( is_used( prtcl, TRIM( variable(9:) ) ) )  THEN  ! 9: remove salsa_s_
+                      found_index = get_index( prtcl, TRIM( variable(9:) ) )
+                      DO  i = nxl, nxr
+                         DO  j = nys, nyn
+                            DO  k = nzb, nzt+1
+                               s_mass_av(k,j,i,found_index) = s_mass_av(k,j,i,found_index) /       &
+                                                              REAL( average_count_3d, KIND=wp )
+                            ENDDO
+                         ENDDO
+                      ENDDO
+                   ENDIF
+                ENDIF
 
              CASE ( 'LDSA' )
                 IF ( ALLOCATED( ldsa_av ) )  THEN
-                   DO  i = nxlg, nxrg
-                      DO  j = nysg, nyng
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
                          DO  k = nzb, nzt+1
                             ldsa_av(k,j,i) = ldsa_av(k,j,i) / REAL( average_count_3d, KIND=wp )
                          ENDDO
@@ -11110,8 +13547,8 @@
 
              CASE ( 'N_UFP' )
                 IF ( ALLOCATED( nufp_av ) )  THEN
-                   DO  i = nxlg, nxrg
-                      DO  j = nysg, nyng
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
                          DO  k = nzb, nzt+1
                             nufp_av(k,j,i) = nufp_av(k,j,i) / REAL( average_count_3d, KIND=wp )
                          ENDDO
@@ -11121,8 +13558,8 @@
 
              CASE ( 'Ntot' )
                 IF ( ALLOCATED( ntot_av ) )  THEN
-                   DO  i = nxlg, nxrg
-                      DO  j = nysg, nyng
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
                          DO  k = nzb, nzt+1
                             ntot_av(k,j,i) = ntot_av(k,j,i) / REAL( average_count_3d, KIND=wp )
                          ENDDO
@@ -11132,8 +13569,8 @@
 
              CASE ( 'PM0.1' )
                 IF ( ALLOCATED( pm01_av ) )  THEN
-                   DO  i = nxlg, nxrg
-                      DO  j = nysg, nyng
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
                          DO  k = nzb, nzt+1
                             pm01_av(k,j,i) = pm01_av(k,j,i) / REAL( average_count_3d, KIND=wp )
                          ENDDO
@@ -11143,8 +13580,8 @@
 
              CASE ( 'PM2.5' )
                 IF ( ALLOCATED( pm25_av ) )  THEN
-                   DO  i = nxlg, nxrg
-                      DO  j = nysg, nyng
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
                          DO  k = nzb, nzt+1
                             pm25_av(k,j,i) = pm25_av(k,j,i) / REAL( average_count_3d, KIND=wp )
                          ENDDO
@@ -11167,8 +13604,8 @@
                 IF ( ALLOCATED( s_mass_av ) )  THEN
                    IF ( is_used( prtcl, TRIM( variable(9:) ) ) )  THEN  ! 9: remove salsa_s_
                       found_index = get_index( prtcl, TRIM( variable(9:) ) )
-                      DO  i = nxlg, nxrg
-                         DO  j = nysg, nyng
+                      DO  i = nxl, nxr
+                         DO  j = nys, nyn
                             DO  k = nzb, nzt+1
                                s_mass_av(k,j,i,found_index) = s_mass_av(k,j,i,found_index) /       &
                                                               REAL( average_count_3d, KIND=wp )
@@ -11180,8 +13617,8 @@
 
              CASE ( 's_H2O' )
                 to_be_resorted => s_h2o_av
-                DO  i = nxlg, nxrg
-                   DO  j = nysg, nyng
+                DO  i = nxl, nxr
+                   DO  j = nys, nyn
                       DO  k = nzb, nzt+1
                          to_be_resorted(k,j,i) = to_be_resorted(k,j,i) /                           &
                                                  REAL( average_count_3d, KIND=wp )
@@ -11189,7 +13626,278 @@
                    ENDDO
                 ENDDO
 
-          END SELECT
+CASE ( 'LDSA_tra' )
+              IF ( .NOT. ALLOCATED( ldsa_av_tra ) )  THEN
+                 ALLOCATE( ldsa_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
+                 ldsa_av_tra = 0.0_wp
+              ENDIF
+              to_be_resorted => ldsa_av_tra
+              IF ( mode == 'average' )  THEN
+                 DO  i = nxl, nxr
+                    DO  j = nys, nyn
+                       DO  k = nzb, nzt+1
+                          temp_bin = 0.0_wp
+                          DO  ib = 1, nbins_aerosol
+                             mean_d = 1.0E+6_wp * ra_dry(k,j,i,ib) * 2.0_wp
+                             IF ( mean_d > 0.0_wp )  THEN
+                                df = ( 0.058_wp + 0.015_wp * EXP( -0.5_wp * ( LOG10( mean_d ) + 1.28_wp )**2 ) &
+                                     + 0.202_wp * EXP( -0.5_wp * ( LOG10( mean_d ) - 1.70_wp )**2 ) )
+                             ELSE
+                                df = 0.0_wp
+                             ENDIF
+                             temp_bin = temp_bin + df * aerosol_number_tra(ib)%conc(k,j,i) * &
+                                        1.0E-12_wp * ( 0.5_wp * ra_dry(k,j,i,ib) * 2.0_wp )**2 * 4.0_wp * pi
+                          ENDDO
+                          to_be_resorted(k,j,i) = to_be_resorted(k,j,i) + temp_bin
+                       ENDDO
+                    ENDDO
+                 ENDDO
+              ELSE
+                 DO  i = nxl, nxr
+                    DO  j = nys, nyn
+                       DO  k = nzb, nzt+1
+                          to_be_resorted(k,j,i) = to_be_resorted(k,j,i) / REAL( average_count_3d, KIND=wp )
+                       ENDDO
+                    ENDDO
+                 ENDDO
+              ENDIF
+
+           CASE ( 'PM0.1_tra' )
+              IF ( .NOT. ALLOCATED( pm01_av_tra ) )  THEN
+                 ALLOCATE( pm01_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
+                 pm01_av_tra = 0.0_wp
+              ENDIF
+              to_be_resorted => pm01_av_tra
+              IF ( mode == 'average' )  THEN
+                 DO  i = nxl, nxr
+                    DO  j = nys, nyn
+                       DO  k = nzb, nzt+1
+                          temp_bin = 0.0_wp
+                          DO  ib = 1, nbins_aerosol
+                             IF ( 2.0_wp * ra_dry(k,j,i,ib) <= 0.1E-6_wp )  THEN
+                                DO  ic = ib, nbins_aerosol * ncc, nbins_aerosol
+                                   temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                                ENDDO
+                             ENDIF
+                          ENDDO
+                          to_be_resorted(k,j,i) = to_be_resorted(k,j,i) + temp_bin
+                       ENDDO
+                    ENDDO
+                 ENDDO
+              ELSE
+                 DO  i = nxl, nxr
+                    DO  j = nys, nyn
+                       DO  k = nzb, nzt+1
+                          to_be_resorted(k,j,i) = to_be_resorted(k,j,i) / REAL( average_count_3d, KIND=wp )
+                       ENDDO
+                    ENDDO
+                 ENDDO
+              ENDIF
+
+           CASE ( 'PM2.5_tra' )
+              IF ( .NOT. ALLOCATED( pm25_av_tra ) )  THEN
+                 ALLOCATE( pm25_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
+                 pm25_av_tra = 0.0_wp
+              ENDIF
+              to_be_resorted => pm25_av_tra
+              IF ( mode == 'average' )  THEN
+                 DO  i = nxl, nxr
+                    DO  j = nys, nyn
+                       DO  k = nzb, nzt+1
+                          temp_bin = 0.0_wp
+                          DO  ib = 1, nbins_aerosol
+                             IF ( 2.0_wp * ra_dry(k,j,i,ib) <= 2.5E-6_wp )  THEN
+                                DO  ic = ib, nbins_aerosol * ncc, nbins_aerosol
+                                   temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                                ENDDO
+                             ENDIF
+                          ENDDO
+                          to_be_resorted(k,j,i) = to_be_resorted(k,j,i) + temp_bin
+                       ENDDO
+                    ENDDO
+                 ENDDO
+              ELSE
+                 DO  i = nxl, nxr
+                    DO  j = nys, nyn
+                       DO  k = nzb, nzt+1
+                          to_be_resorted(k,j,i) = to_be_resorted(k,j,i) / REAL( average_count_3d, KIND=wp )
+                       ENDDO
+                    ENDDO
+                 ENDDO
+              ENDIF
+
+           CASE ( 'PM10_tra' )
+              IF ( .NOT. ALLOCATED( pm10_av_tra ) )  THEN
+                 ALLOCATE( pm10_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
+                 pm10_av_tra = 0.0_wp
+              ENDIF
+              to_be_resorted => pm10_av_tra
+              IF ( mode == 'average' )  THEN
+                 DO  i = nxl, nxr
+                    DO  j = nys, nyn
+                       DO  k = nzb, nzt+1
+                          temp_bin = 0.0_wp
+                          DO  ib = 1, nbins_aerosol
+                             IF ( 2.0_wp * ra_dry(k,j,i,ib) <= 10.0E-6_wp )  THEN
+                                DO  ic = ib, nbins_aerosol * ncc, nbins_aerosol
+                                   temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                                ENDDO
+                             ENDIF
+                          ENDDO
+                          to_be_resorted(k,j,i) = to_be_resorted(k,j,i) + temp_bin
+                       ENDDO
+                    ENDDO
+                 ENDDO
+              ELSE
+                 DO  i = nxl, nxr
+                    DO  j = nys, nyn
+                       DO  k = nzb, nzt+1
+                          to_be_resorted(k,j,i) = to_be_resorted(k,j,i) / REAL( average_count_3d, KIND=wp )
+                       ENDDO
+                    ENDDO
+                 ENDDO
+              ENDIF
+
+           CASE ( 'N_UFP_tra' )
+              IF ( .NOT. ALLOCATED( nufp_av_tra ) )  THEN
+                 ALLOCATE( nufp_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
+                 nufp_av_tra = 0.0_wp
+              ENDIF
+              to_be_resorted => nufp_av_tra
+              IF ( mode == 'average' )  THEN
+                 DO  i = nxl, nxr
+                    DO  j = nys, nyn
+                       DO  k = nzb, nzt+1
+                          temp_bin = 0.0_wp
+                          DO  ib = 1, nbins_aerosol
+                             IF ( 2.0_wp * ra_dry(k,j,i,ib) <= 0.1E-6_wp )  THEN
+                                temp_bin = temp_bin + aerosol_number_tra(ib)%conc(k,j,i)
+                             ENDIF
+                          ENDDO
+                          to_be_resorted(k,j,i) = to_be_resorted(k,j,i) + temp_bin
+                       ENDDO
+                    ENDDO
+                 ENDDO
+              ELSE
+                 DO  i = nxl, nxr
+                    DO  j = nys, nyn
+                       DO  k = nzb, nzt+1
+                          to_be_resorted(k,j,i) = to_be_resorted(k,j,i) / REAL( average_count_3d, KIND=wp )
+                       ENDDO
+                    ENDDO
+                 ENDDO
+              ENDIF
+
+           CASE ( 'Ntot_tra' )
+              IF ( .NOT. ALLOCATED( ntot_av_tra ) )  THEN
+                 ALLOCATE( ntot_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
+                 ntot_av_tra = 0.0_wp
+              ENDIF
+              to_be_resorted => ntot_av_tra
+              IF ( mode == 'average' )  THEN
+                 DO  i = nxl, nxr
+                    DO  j = nys, nyn
+                       DO  k = nzb, nzt+1
+                          temp_bin = 0.0_wp
+                          DO  ib = 1, nbins_aerosol
+                             temp_bin = temp_bin + aerosol_number_tra(ib)%conc(k,j,i)
+                          ENDDO
+                          to_be_resorted(k,j,i) = to_be_resorted(k,j,i) + temp_bin
+                       ENDDO
+                    ENDDO
+                 ENDDO
+              ELSE
+                 DO  i = nxl, nxr
+                    DO  j = nys, nyn
+                       DO  k = nzb, nzt+1
+                          to_be_resorted(k,j,i) = to_be_resorted(k,j,i) / REAL( average_count_3d, KIND=wp )
+                       ENDDO
+                    ENDDO
+                 ENDDO
+              ENDIF
+
+           CASE ( 's_SO4_tra', 's_OC_tra', 's_BC_tra', 's_DU_tra', 's_SS_tra', &
+                  's_NO_tra', 's_NH_tra' )
+              IF ( .NOT. ALLOCATED( s_mass_av_tra ) )  THEN
+                 ALLOCATE( s_mass_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg,maxspec) )
+                 s_mass_av_tra = 0.0_wp
+              ENDIF
+              found_index = -1
+              IF ( variable(7:10) == 's_SO' .AND. index_so4 > 0 )  found_index = index_so4
+              IF ( variable(7:10) == 's_OC' .AND. index_oc > 0 )   found_index = index_oc
+              IF ( variable(7:10) == 's_BC' .AND. index_bc > 0 )   found_index = index_bc
+              IF ( variable(7:10) == 's_DU' .AND. index_du > 0 )   found_index = index_du
+              IF ( variable(7:10) == 's_SS' .AND. index_ss > 0 )   found_index = index_ss
+              IF ( variable(7:10) == 's_NO' .AND. index_no > 0 )   found_index = index_no
+              IF ( variable(7:10) == 's_NH' .AND. index_nh > 0 )   found_index = index_nh
+              IF ( found_index > 0 )  THEN
+                 IF ( mode == 'average' )  THEN
+                    DO  i = nxl, nxr
+                       DO  j = nys, nyn
+                          DO  k = nzb, nzt+1
+                             temp_bin = 0.0_wp
+                             DO  ib = 1, nbins_aerosol
+                                ic = ( found_index-1 ) * nbins_aerosol + ib
+                                temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                             ENDDO
+                             s_mass_av_tra(k,j,i,found_index) = s_mass_av_tra(k,j,i,found_index) + temp_bin
+                          ENDDO
+                       ENDDO
+                    ENDDO
+                 ELSE
+                    DO  i = nxl, nxr
+                       DO  j = nys, nyn
+                          DO  k = nzb, nzt+1
+                             s_mass_av_tra(k,j,i,found_index) = s_mass_av_tra(k,j,i,found_index) / &
+                                                                REAL( average_count_3d, KIND=wp )
+                          ENDDO
+                       ENDDO
+                    ENDDO
+                 ENDIF
+              ELSE
+                 found = .FALSE.
+              ENDIF
+
+           CASE ( 's_PB_tra', 's_HG_tra', 's_NI_tra', 's_CD_tra', 's_AS_tra' )
+              IF ( .NOT. ALLOCATED( s_mass_av_tra ) )  THEN
+                 ALLOCATE( s_mass_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg,maxspec) )
+                 s_mass_av_tra = 0.0_wp
+              ENDIF
+              found_index = -1
+              IF ( variable(7:10) == 's_PB' .AND. index_pb > 0 )  found_index = index_pb
+              IF ( variable(7:10) == 's_HG' .AND. index_hg > 0 )  found_index = index_hg
+              IF ( variable(7:10) == 's_NI' .AND. index_ni > 0 )  found_index = index_ni
+              IF ( variable(7:10) == 's_CD' .AND. index_cd > 0 )  found_index = index_cd
+              IF ( variable(7:10) == 's_AS' .AND. index_as > 0 )  found_index = index_as
+              IF ( found_index > 0 )  THEN
+                 IF ( mode == 'average' )  THEN
+                    DO  i = nxl, nxr
+                       DO  j = nys, nyn
+                          DO  k = nzb, nzt+1
+                             temp_bin = 0.0_wp
+                             DO  ib = 1, nbins_aerosol
+                                ic = ( found_index-1 ) * nbins_aerosol + ib
+                                temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                             ENDDO
+                             s_mass_av_tra(k,j,i,found_index) = s_mass_av_tra(k,j,i,found_index) + temp_bin
+                          ENDDO
+                       ENDDO
+                    ENDDO
+                 ELSE
+                    DO  i = nxl, nxr
+                       DO  j = nys, nyn
+                          DO  k = nzb, nzt+1
+                             s_mass_av_tra(k,j,i,found_index) = s_mass_av_tra(k,j,i,found_index) / &
+                                                                REAL( average_count_3d, KIND=wp )
+                          ENDDO
+                       ENDDO
+                    ENDDO
+                 ENDIF
+              ELSE
+                 found = .FALSE.
+              ENDIF
+
+           END SELECT
 
        ENDIF
     ENDIF
@@ -11197,18 +13905,16 @@
  END SUBROUTINE salsa_3d_data_averaging
 
 
-!------------------------------------------------------------------------------!
-!
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Subroutine defining 2D output variables
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_data_output_2d( av, variable, found, grid, mode, local_pf, two_d, nzb_do, nzt_do )
 
     USE indices
 
     USE kinds
-
 
     IMPLICIT NONE
 
@@ -11238,6 +13944,8 @@
     REAL(wp) ::  temp_bin                 !< temporary array for calculating output variables
 
     REAL(wp), DIMENSION(nxl:nxr,nys:nyn,nzb_do:nzt_do) ::  local_pf  !< output
+
+
 !
 !-- Next statement is to avoid compiler warning about unused variable. May be removed in future.
     IF ( two_d )  CONTINUE
@@ -11247,7 +13955,13 @@
 
     IF ( variable(7:11)  == 'N_bin' )  THEN
 
-       READ( variable( 12:LEN( TRIM( variable ) ) - 3 ), * ) char_to_int
+       IF ( variable(LEN_TRIM(variable)-7:) == '_tra_xy' .OR. &
+            variable(LEN_TRIM(variable)-7:) == '_tra_xz' .OR. &
+            variable(LEN_TRIM(variable)-7:) == '_tra_yz' )  THEN
+          READ( variable( 12:LEN( TRIM( variable ) ) - 7 ), * ) char_to_int
+       ELSE
+          READ( variable( 12:LEN( TRIM( variable ) ) - 3 ), * ) char_to_int
+       ENDIF
        IF ( char_to_int >= 1  .AND. char_to_int <= SUM( nbin ) )  THEN
 
           ib = char_to_int
@@ -11255,31 +13969,59 @@
              DO  i = nxl, nxr
                 DO  j = nys, nyn
                    DO  k = nzb_do, nzt_do
-                      local_pf(i,j,k) = MERGE( aerosol_number(ib)%conc(k,j,i), REAL( fill_value,   &
-                                               KIND = wp ), BTEST( topo_flags(k,j,i), 0 ) )
+                      IF ( BTEST( topo_flags(k,j,i), 0 ) )  THEN
+                         IF ( variable(LEN_TRIM(variable)-7:) == '_tra_xy' .OR. &
+                              variable(LEN_TRIM(variable)-7:) == '_tra_xz' .OR. &
+                              variable(LEN_TRIM(variable)-7:) == '_tra_yz' )  THEN
+                            local_pf(i,j,k) = aerosol_number_tra(ib)%conc(k,j,i)
+                         ELSE
+                            local_pf(i,j,k) = aerosol_number(ib)%conc(k,j,i)
+                         ENDIF
+                      ENDIF
                    ENDDO
                 ENDDO
              ENDDO
           ELSE
-             IF ( .NOT. ALLOCATED( nbins_av ) )  THEN
-                ALLOCATE( nbins_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg,nbins_aerosol) )
-                nbins_av = REAL( fill_value, KIND = wp )
-             ENDIF
-             DO  i = nxl, nxr
-                DO  j = nys, nyn
-                   DO  k = nzb_do, nzt_do
-                      local_pf(i,j,k) = MERGE( nbins_av(k,j,i,ib), REAL( fill_value, KIND = wp ),  &
-                                               BTEST( topo_flags(k,j,i), 0 ) )
+             IF ( variable(LEN_TRIM(variable)-7:) == '_tra_xy' .OR. &
+                  variable(LEN_TRIM(variable)-7:) == '_tra_xz' .OR. &
+                  variable(LEN_TRIM(variable)-7:) == '_tra_yz' )  THEN
+                IF ( .NOT. ALLOCATED( nbins_av_tra ) )  THEN
+                   ALLOCATE( nbins_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg,nbins_aerosol) )
+                   nbins_av_tra = 0.0_wp
+                ENDIF
+                DO  i = nxl, nxr
+                   DO  j = nys, nyn
+                      DO  k = nzb_do, nzt_do
+                         local_pf(i,j,k) = nbins_av_tra(k,j,i,ib)
+                      ENDDO
                    ENDDO
                 ENDDO
-             ENDDO
+             ELSE
+                IF ( .NOT. ALLOCATED( nbins_av ) )  THEN
+                   ALLOCATE( nbins_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg,nbins_aerosol) )
+                   nbins_av = 0.0_wp
+                ENDIF
+                DO  i = nxl, nxr
+                   DO  j = nys, nyn
+                      DO  k = nzb_do, nzt_do
+                         local_pf(i,j,k) = nbins_av(k,j,i,ib)
+                      ENDDO
+                   ENDDO
+                ENDDO
+             ENDIF
           ENDIF
           IF ( mode == 'xy' )  grid = 'zu'
        ENDIF
 
     ELSEIF ( variable(7:11)  == 'm_bin' )  THEN
 
-       READ( variable( 12:LEN( TRIM( variable ) ) - 3 ), * ) char_to_int
+       IF ( variable(LEN_TRIM(variable)-7:) == '_tra_xy' .OR. &
+            variable(LEN_TRIM(variable)-7:) == '_tra_xz' .OR. &
+            variable(LEN_TRIM(variable)-7:) == '_tra_yz' )  THEN
+          READ( variable( 12:LEN( TRIM( variable ) ) - 7 ), * ) char_to_int
+       ELSE
+          READ( variable( 12:LEN( TRIM( variable ) ) - 3 ), * ) char_to_int
+       ENDIF
        IF ( char_to_int >= 1  .AND. char_to_int <= SUM( nbin ) )  THEN
 
           ib = char_to_int
@@ -11287,28 +14029,50 @@
              DO  i = nxl, nxr
                 DO  j = nys, nyn
                    DO  k = nzb_do, nzt_do
-                      temp_bin = 0.0_wp
-                      DO  ic = ib, ncomponents_mass * nbins_aerosol, nbins_aerosol
-                         temp_bin = temp_bin + aerosol_mass(ic)%conc(k,j,i)
-                      ENDDO
-                      local_pf(i,j,k) = MERGE( temp_bin, REAL( fill_value, KIND = wp ),            &
-                                               BTEST( topo_flags(k,j,i), 0 ) )
+                      IF ( BTEST( topo_flags(k,j,i), 0 ) )  THEN
+                         temp_bin = 0.0_wp
+                         DO  ic = ib, ncomponents_mass * nbins_aerosol, nbins_aerosol
+                            IF ( variable(LEN_TRIM(variable)-7:) == '_tra_xy' .OR. &
+                                 variable(LEN_TRIM(variable)-7:) == '_tra_xz' .OR. &
+                                 variable(LEN_TRIM(variable)-7:) == '_tra_yz' )  THEN
+                               temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                            ELSE
+                               temp_bin = temp_bin + aerosol_mass(ic)%conc(k,j,i)
+                            ENDIF
+                         ENDDO
+                         local_pf(i,j,k) = temp_bin
+                      ENDIF
                    ENDDO
                 ENDDO
              ENDDO
           ELSE
-             IF ( .NOT. ALLOCATED( mbins_av ) )  THEN
-                ALLOCATE( mbins_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg,nbins_aerosol) )
-                mbins_av = REAL( fill_value, KIND = wp )
-             ENDIF
-             DO  i = nxl, nxr
-                DO  j = nys, nyn
-                   DO  k = nzb_do, nzt_do
-                      local_pf(i,j,k) = MERGE( mbins_av(k,j,i,ib), REAL( fill_value, KIND = wp ),  &
-                                               BTEST( topo_flags(k,j,i), 0 ) )
+             IF ( variable(LEN_TRIM(variable)-7:) == '_tra_xy' .OR. &
+                  variable(LEN_TRIM(variable)-7:) == '_tra_xz' .OR. &
+                  variable(LEN_TRIM(variable)-7:) == '_tra_yz' )  THEN
+                IF ( .NOT. ALLOCATED( mbins_av_tra ) )  THEN
+                   ALLOCATE( mbins_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg,nbins_aerosol) )
+                   mbins_av_tra = 0.0_wp
+                ENDIF
+                DO  i = nxl, nxr
+                   DO  j = nys, nyn
+                      DO  k = nzb_do, nzt_do
+                         local_pf(i,j,k) = mbins_av_tra(k,j,i,ib)
+                      ENDDO
                    ENDDO
                 ENDDO
-             ENDDO
+             ELSE
+                IF ( .NOT. ALLOCATED( mbins_av ) )  THEN
+                   ALLOCATE( mbins_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg,nbins_aerosol) )
+                   mbins_av = 0.0_wp
+                ENDIF
+                DO  i = nxl, nxr
+                   DO  j = nys, nyn
+                      DO  k = nzb_do, nzt_do
+                         local_pf(i,j,k) = mbins_av(k,j,i,ib)
+                      ENDDO
+                   ENDDO
+                ENDDO
+             ENDIF
           ENDIF
           IF ( mode == 'xy' )  grid = 'zu'
        ENDIF
@@ -11328,28 +14092,56 @@
                 DO  i = nxl, nxr
                    DO  j = nys, nyn
                       DO  k = nzb_do, nzt_do
-                         local_pf(i,j,k) = MERGE( salsa_gas(found_index)%conc(k,j,i),              &
-                                                  REAL( fill_value,  KIND = wp ),                  &
-                                                  BTEST( topo_flags(k,j,i), 0 ) )
+                         local_pf(i,j,k) = salsa_gas(found_index)%conc(k,j,i)
                       ENDDO
                    ENDDO
                 ENDDO
              ELSE
                 IF ( .NOT. ALLOCATED( salsa_gases_av ) )  THEN
                    ALLOCATE( salsa_gases_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg,ngases_salsa) )
-                   salsa_gases_av = REAL( fill_value, KIND = wp )
+                   salsa_gases_av = 0.0_wp
                 ENDIF
                 DO  i = nxl, nxr
                    DO  j = nys, nyn
                       DO  k = nzb_do, nzt_do
-                         local_pf(i,j,k) = MERGE( salsa_gases_av(k,j,i,found_index),               &
-                                                  REAL( fill_value, KIND = wp ),                   &
-                                                  BTEST( topo_flags(k,j,i), 0 ) )
+                         local_pf(i,j,k) = salsa_gases_av(k,j,i,found_index)
                       ENDDO
                    ENDDO
                 ENDDO
              ENDIF
 
+             IF ( mode == 'xy' )  grid = 'zu'
+! MODIFICATION: Added 2D output for new trace metal species
+          CASE ( 's_PB', 's_HG', 's_NI', 's_CD', 's_AS' )
+             vari = TRIM( variable( 9:LEN( TRIM( variable ) ) - 3 ) )  ! 9: remove salsa_s_
+             IF ( is_used( prtcl, vari ) )  THEN
+                found_index = get_index( prtcl, vari )
+                IF ( av == 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb_do, nzt_do
+                            temp_bin = 0.0_wp
+                            DO  ic = ( found_index-1 )*nbins_aerosol+1, found_index*nbins_aerosol
+                               temp_bin = temp_bin + aerosol_mass(ic)%conc(k,j,i)
+                            ENDDO
+                            local_pf(i,j,k) = temp_bin
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ELSE
+                   IF ( .NOT. ALLOCATED( s_mass_av ) )  THEN
+                      ALLOCATE( s_mass_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg,ncomponents_mass) )
+                      s_mass_av = 0.0_wp
+                   ENDIF
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb_do, nzt_do
+                            local_pf(i,j,k) = s_mass_av(k,j,i,found_index)
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+             ENDIF
              IF ( mode == 'xy' )  grid = 'zu'
 
           CASE ( 'LDSA' )
@@ -11360,34 +14152,33 @@
                          temp_bin = 0.0_wp
                          DO  ib = 1, nbins_aerosol
 !
-!--                         Diameter in micrometres
+!--                         Diameter in micrometres.
                             mean_d = 1.0E+6_wp * ra_dry(k,j,i,ib) * 2.0_wp
 !
-!--                         Deposition factor: alveolar
+!--                         Deposition factor: alveolar.
                             df = ( 0.01555_wp / mean_d ) * ( EXP( -0.416_wp * ( LOG( mean_d ) +    &
-                                   2.84_wp )**2 ) + 19.11_wp * EXP( -0.482_wp * ( LOG( mean_d ) -  &
-                                   1.362_wp )**2 ) )
+                                                                  2.84_wp )**2                     &
+                                                                ) + 19.11_wp *                     &
+                                                             EXP( -0.482_wp * ( LOG( mean_d ) -    &
+                                                                  1.362_wp )**2 ) )
 !
-!--                         Lung-deposited surface area LDSA (units mum2/cm3)
+!--                         Lung-deposited surface area LDSA (units mum2/cm3).
                             temp_bin = temp_bin + pi * mean_d**2 * df * 1.0E-6_wp *                &
                                        aerosol_number(ib)%conc(k,j,i)
                          ENDDO
-
-                         local_pf(i,j,k) = MERGE( temp_bin, REAL( fill_value, KIND = wp ),         &
-                                                  BTEST( topo_flags(k,j,i), 0 ) )
-                      ENDDO
+                         local_pf(i,j,k) = temp_bin
+                     ENDDO
                    ENDDO
                 ENDDO
              ELSE
                 IF ( .NOT. ALLOCATED( ldsa_av ) )  THEN
                    ALLOCATE( ldsa_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
-                   ldsa_av = REAL( fill_value, KIND = wp )
+                   ldsa_av = 0.0_wp
                 ENDIF
                 DO  i = nxl, nxr
                    DO  j = nys, nyn
                       DO  k = nzb_do, nzt_do
-                         local_pf(i,j,k) = MERGE( ldsa_av(k,j,i), REAL( fill_value, KIND = wp ),   &
-                                                  BTEST( topo_flags(k,j,i), 0 ) )
+                         local_pf(i,j,k) = ldsa_av(k,j,i)
                       ENDDO
                    ENDDO
                 ENDDO
@@ -11407,21 +14198,19 @@
                                temp_bin = temp_bin + aerosol_number(ib)%conc(k,j,i)
                             ENDIF
                          ENDDO
-                         local_pf(i,j,k) = MERGE( temp_bin, REAL( fill_value, KIND = wp ),         &
-                                                  BTEST( topo_flags(k,j,i), 0 ) )
+                         local_pf(i,j,k) = temp_bin
                       ENDDO
                    ENDDO
                 ENDDO
              ELSE
                 IF ( .NOT. ALLOCATED( nufp_av ) )  THEN
                    ALLOCATE( nufp_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
-                   nufp_av = REAL( fill_value, KIND = wp )
+                   nufp_av = 0.0_wp
                 ENDIF
                 DO  i = nxl, nxr
                    DO  j = nys, nyn
                       DO  k = nzb_do, nzt_do
-                         local_pf(i,j,k) = MERGE( nufp_av(k,j,i), REAL( fill_value, KIND = wp ),   &
-                                                  BTEST( topo_flags(k,j,i), 0 ) )
+                         local_pf(i,j,k) = nufp_av(k,j,i)
                       ENDDO
                    ENDDO
                 ENDDO
@@ -11439,21 +14228,19 @@
                          DO  ib = 1, nbins_aerosol
                             temp_bin = temp_bin + aerosol_number(ib)%conc(k,j,i)
                          ENDDO
-                         local_pf(i,j,k) = MERGE( temp_bin, REAL( fill_value, KIND = wp ),         &
-                                                  BTEST( topo_flags(k,j,i), 0 ) )
+                         local_pf(i,j,k) = temp_bin
                       ENDDO
                    ENDDO
                 ENDDO
              ELSE
                 IF ( .NOT. ALLOCATED( ntot_av ) )  THEN
                    ALLOCATE( ntot_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
-                   ntot_av = REAL( fill_value, KIND = wp )
+                   ntot_av = 0.0_wp
                 ENDIF
                 DO  i = nxl, nxr
                    DO  j = nys, nyn
                       DO  k = nzb_do, nzt_do
-                         local_pf(i,j,k) = MERGE( ntot_av(k,j,i), REAL( fill_value, KIND = wp ),   &
-                                                  BTEST( topo_flags(k,j,i), 0 ) )
+                         local_pf(i,j,k) = ntot_av(k,j,i)
                       ENDDO
                    ENDDO
                 ENDDO
@@ -11474,21 +14261,19 @@
                                ENDDO
                             ENDIF
                          ENDDO
-                         local_pf(i,j,k) = MERGE( temp_bin, REAL( fill_value, KIND = wp ),         &
-                                                  BTEST( topo_flags(k,j,i), 0 ) )
+                         local_pf(i,j,k) = temp_bin
                       ENDDO
                    ENDDO
                 ENDDO
              ELSE
                 IF ( .NOT. ALLOCATED( pm01_av ) )  THEN
                    ALLOCATE( pm01_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
-                   pm01_av = REAL( fill_value, KIND = wp )
+                   pm01_av = 0.0_wp
                 ENDIF
                 DO  i = nxl, nxr
                    DO  j = nys, nyn
                       DO  k = nzb_do, nzt_do
-                         local_pf(i,j,k) = MERGE( pm01_av(k,j,i), REAL( fill_value, KIND = wp ),   &
-                                                  BTEST( topo_flags(k,j,i), 0 ) )
+                         local_pf(i,j,k) = pm01_av(k,j,i)
                       ENDDO
                    ENDDO
                 ENDDO
@@ -11509,21 +14294,19 @@
                                ENDDO
                             ENDIF
                          ENDDO
-                         local_pf(i,j,k) = MERGE( temp_bin, REAL( fill_value, KIND = wp ),         &
-                                                  BTEST( topo_flags(k,j,i), 0 ) )
+                         local_pf(i,j,k) = temp_bin
                       ENDDO
                    ENDDO
                 ENDDO
              ELSE
                 IF ( .NOT. ALLOCATED( pm25_av ) )  THEN
                    ALLOCATE( pm25_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
-                   pm25_av = REAL( fill_value, KIND = wp )
+                   pm25_av = 0.0_wp
                 ENDIF
                 DO  i = nxl, nxr
                    DO  j = nys, nyn
                       DO  k = nzb_do, nzt_do
-                         local_pf(i,j,k) = MERGE( pm25_av(k,j,i), REAL( fill_value, KIND = wp ),   &
-                                                  BTEST( topo_flags(k,j,i), 0 ) )
+                         local_pf(i,j,k) = pm25_av(k,j,i)
                       ENDDO
                    ENDDO
                 ENDDO
@@ -11544,21 +14327,19 @@
                                ENDDO
                             ENDIF
                          ENDDO
-                         local_pf(i,j,k) = MERGE( temp_bin,  REAL( fill_value, KIND = wp ),        &
-                                                  BTEST( topo_flags(k,j,i), 0 ) )
+                         local_pf(i,j,k) = temp_bin
                       ENDDO
                    ENDDO
                 ENDDO
              ELSE
                 IF ( .NOT. ALLOCATED( pm10_av ) )  THEN
                    ALLOCATE( pm10_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
-                   pm10_av = REAL( fill_value, KIND = wp )
+                   pm10_av = 0.0_wp
                 ENDIF
                 DO  i = nxl, nxr
                    DO  j = nys, nyn
                       DO  k = nzb_do, nzt_do
-                         local_pf(i,j,k) = MERGE( pm10_av(k,j,i), REAL( fill_value, KIND = wp ),   &
-                                                  BTEST( topo_flags(k,j,i), 0 ) )
+                         local_pf(i,j,k) = pm10_av(k,j,i)
                       ENDDO
                    ENDDO
                 ENDDO
@@ -11575,31 +14356,26 @@
                       DO  j = nys, nyn
                          DO  k = nzb_do, nzt_do
                             temp_bin = 0.0_wp
-                            DO  ic = ( found_index-1 ) * nbins_aerosol+1, found_index * nbins_aerosol
+                            DO  ic = ( found_index-1 )*nbins_aerosol+1, found_index*nbins_aerosol
                                temp_bin = temp_bin + aerosol_mass(ic)%conc(k,j,i)
                             ENDDO
-                            local_pf(i,j,k) = MERGE( temp_bin, REAL( fill_value, KIND = wp ),      &
-                                                     BTEST( topo_flags(k,j,i), 0 ) )
+                            local_pf(i,j,k) = temp_bin
                          ENDDO
                       ENDDO
                    ENDDO
                 ELSE
                    IF ( .NOT. ALLOCATED( s_mass_av ) )  THEN
                       ALLOCATE( s_mass_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg,ncomponents_mass) )
-                      s_mass_av = REAL( fill_value, KIND = wp )
+                      s_mass_av = 0.0_wp
                    ENDIF
                    DO  i = nxl, nxr
                       DO  j = nys, nyn
                          DO  k = nzb_do, nzt_do
-                            local_pf(i,j,k) = MERGE( s_mass_av(k,j,i,found_index),                 &
-                                                     REAL( fill_value, KIND = wp ),                &
-                                                     BTEST( topo_flags(k,j,i), 0 ) )
+                            local_pf(i,j,k) = s_mass_av(k,j,i,found_index)
                          ENDDO
                       ENDDO
                    ENDDO
                 ENDIF
-             ELSE
-                local_pf = fill_value
              ENDIF
 
              IF ( mode == 'xy' )  grid = 'zu'
@@ -11614,22 +14390,19 @@
                          DO  ic = ( found_index-1 ) * nbins_aerosol+1, found_index * nbins_aerosol
                             temp_bin = temp_bin + aerosol_mass(ic)%conc(k,j,i)
                          ENDDO
-                         local_pf(i,j,k) = MERGE( temp_bin, REAL( fill_value, KIND = wp ),         &
-                                                  BTEST( topo_flags(k,j,i), 0 ) )
+                         local_pf(i,j,k) = temp_bin
                       ENDDO
                    ENDDO
                 ENDDO
              ELSE
-     !           to_be_resorted => s_h2o_av
                 IF ( .NOT. ALLOCATED( s_h2o_av ) )  THEN
                    ALLOCATE( s_h2o_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
-                   s_h2o_av = REAL( fill_value, KIND = wp )
+                   s_h2o_av = 0.0_wp
                 ENDIF
                 DO  i = nxl, nxr
                    DO  j = nys, nyn
                       DO  k = nzb_do, nzt_do
-                         local_pf(i,j,k) = MERGE( s_h2o_av(k,j,i), REAL( fill_value, KIND = wp ),  &
-                                                  BTEST( topo_flags(k,j,i), 0 ) )
+                         local_pf(i,j,k) = s_h2o_av(k,j,i)
                       ENDDO
                    ENDDO
                 ENDDO
@@ -11637,7 +14410,149 @@
 
              IF ( mode == 'xy' )  grid = 'zu'
 
-          CASE DEFAULT
+CASE ( 'LDSA_tra' )
+                DO  i = nxl, nxr
+                   DO  j = nys, nyn
+                      DO  k = nzb_do, nzt_do
+                         temp_bin = 0.0_wp
+                         DO  ib = 1, nbins_aerosol
+                            mean_d = 1.0E+6_wp * ra_dry(k,j,i,ib) * 2.0_wp
+                            IF ( mean_d > 0.0_wp )  THEN
+                               df = ( 0.058_wp + 0.015_wp * EXP( -0.5_wp * ( LOG10( mean_d ) &
+                                                     + 1.28_wp )**2 ) + 0.202_wp * EXP(       &
+                                                     -0.5_wp * ( LOG10( mean_d ) - 1.70_wp )**2 ) )
+                            ELSE
+                               df = 0.0_wp
+                            ENDIF
+                            temp_bin = temp_bin + df * aerosol_number_tra(ib)%conc(k,j,i) *     &
+                                       1.0E-12_wp * ( 0.5_wp * ra_dry(k,j,i,ib) * 2.0_wp )**2 * 4.0_wp * pi
+                         ENDDO
+                         local_pf(i,j,k) = temp_bin
+                      ENDDO
+                   ENDDO
+                ENDDO
+              IF ( mode == 'xy' )  grid = 'zu'
+
+           CASE ( 'PM0.1_tra' )
+                DO  i = nxl, nxr
+                   DO  j = nys, nyn
+                      DO  k = nzb_do, nzt_do
+                         temp_bin = 0.0_wp
+                         DO  ib = 1, nbins_aerosol
+                            IF ( 2.0_wp * ra_dry(k,j,i,ib) <= 0.1E-6_wp )  THEN
+                               DO  ic = ib, nbins_aerosol * ncc, nbins_aerosol
+                                  temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                               ENDDO
+                            ENDIF
+                         ENDDO
+                         local_pf(i,j,k) = temp_bin
+                      ENDDO
+                   ENDDO
+                ENDDO
+
+           CASE ( 'PM2.5_tra' )
+                DO  i = nxl, nxr
+                   DO  j = nys, nyn
+                      DO  k = nzb_do, nzt_do
+                         temp_bin = 0.0_wp
+                         DO  ib = 1, nbins_aerosol
+                            IF ( 2.0_wp * ra_dry(k,j,i,ib) <= 2.5E-6_wp )  THEN
+                               DO  ic = ib, nbins_aerosol * ncc, nbins_aerosol
+                                  temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                               ENDDO
+                            ENDIF
+                         ENDDO
+                         local_pf(i,j,k) = temp_bin
+                      ENDDO
+                   ENDDO
+                ENDDO
+
+           CASE ( 'PM10_tra' )
+                DO  i = nxl, nxr
+                   DO  j = nys, nyn
+                      DO  k = nzb_do, nzt_do
+                         temp_bin = 0.0_wp
+                         DO  ib = 1, nbins_aerosol
+                            IF ( 2.0_wp * ra_dry(k,j,i,ib) <= 10.0E-6_wp )  THEN
+                               DO  ic = ib, nbins_aerosol * ncc, nbins_aerosol
+                                  temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                               ENDDO
+                            ENDIF
+                         ENDDO
+                         local_pf(i,j,k) = temp_bin
+                      ENDDO
+                   ENDDO
+                ENDDO
+              IF ( mode == 'xy' )  grid = 'zu'
+
+           CASE ( 'N_UFP_tra', 'Ntot_tra' )
+                DO  i = nxl, nxr
+                   DO  j = nys, nyn
+                      DO  k = nzb_do, nzt_do
+                         temp_bin = 0.0_wp
+                         DO  ib = 1, nbins_aerosol
+                            temp_bin = temp_bin + aerosol_number_tra(ib)%conc(k,j,i)
+                         ENDDO
+                         local_pf(i,j,k) = temp_bin
+                      ENDDO
+                   ENDDO
+                ENDDO
+              IF ( mode == 'xy' )  grid = 'zu'
+
+           CASE ( 's_SO4_tra', 's_OC_tra', 's_BC_tra', 's_DU_tra', 's_SS_tra', &
+                  's_NO_tra', 's_NH_tra' )
+                found_index = -1
+                IF ( variable(7:10) == 's_SO' .AND. index_so4 > 0 )  found_index = index_so4
+                IF ( variable(7:10) == 's_OC' .AND. index_oc > 0 )   found_index = index_oc
+                IF ( variable(7:10) == 's_BC' .AND. index_bc > 0 )   found_index = index_bc
+                IF ( variable(7:10) == 's_DU' .AND. index_du > 0 )   found_index = index_du
+                IF ( variable(7:10) == 's_SS' .AND. index_ss > 0 )   found_index = index_ss
+                IF ( variable(7:10) == 's_NO' .AND. index_no > 0 )   found_index = index_no
+                IF ( variable(7:10) == 's_NH' .AND. index_nh > 0 )   found_index = index_nh
+                IF ( found_index > 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb_do, nzt_do
+                            temp_bin = 0.0_wp
+                            DO  ib = 1, nbins_aerosol
+                               ic = ( found_index-1 ) * nbins_aerosol + ib
+                               temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                            ENDDO
+                            local_pf(i,j,k) = temp_bin
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ELSE
+                   found = .FALSE.
+                ENDIF
+              IF ( mode == 'xy' )  grid = 'zu'
+
+           CASE ( 's_PB_tra', 's_HG_tra', 's_NI_tra', 's_CD_tra', 's_AS_tra' )
+                found_index = -1
+                IF ( variable(7:10) == 's_PB' .AND. index_pb > 0 )  found_index = index_pb
+                IF ( variable(7:10) == 's_HG' .AND. index_hg > 0 )  found_index = index_hg
+                IF ( variable(7:10) == 's_NI' .AND. index_ni > 0 )  found_index = index_ni
+                IF ( variable(7:10) == 's_CD' .AND. index_cd > 0 )  found_index = index_cd
+                IF ( variable(7:10) == 's_AS' .AND. index_as > 0 )  found_index = index_as
+                IF ( found_index > 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb_do, nzt_do
+                            temp_bin = 0.0_wp
+                            DO  ib = 1, nbins_aerosol
+                               ic = ( found_index-1 ) * nbins_aerosol + ib
+                               temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                            ENDDO
+                            local_pf(i,j,k) = temp_bin
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ELSE
+                   found = .FALSE.
+                ENDIF
+              IF ( mode == 'xy' )  grid = 'zu'
+
+           CASE DEFAULT
              found = .FALSE.
              grid  = 'none'
 
@@ -11647,24 +14562,32 @@
 
  END SUBROUTINE salsa_data_output_2d
 
-!------------------------------------------------------------------------------!
-!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Subroutine defining 3D output variables
-!------------------------------------------------------------------------------!
- SUBROUTINE salsa_data_output_3d( av, variable, found, local_pf, nzb_do, nzt_do )
+!--------------------------------------------------------------------------------------------------!
+ SUBROUTINE salsa_data_output_3d( av, variable, found, local_pf, resorted, nzb_do, nzt_do )
 
     USE indices
 
     USE kinds
 
-
     IMPLICIT NONE
 
-    CHARACTER(LEN=*), INTENT(in) ::  variable   !<
+    CHARACTER(LEN=*), INTENT(IN) ::  variable  !< name of variable
 
-    INTEGER(iwp) ::  av           !<
+    INTEGER(iwp), INTENT(IN) ::  av      !< flag for (non-)average output
+    INTEGER(iwp), INTENT(IN) ::  nzb_do  !< lower limit of the data output (usually 0)
+    INTEGER(iwp), INTENT(IN) ::  nzt_do  !< vertical upper limit of the data output (usually nz_do3d)
+
+    LOGICAL, INTENT(INOUT) ::  found     !< flag if output variable is found
+    LOGICAL, INTENT(INOUT) ::  resorted  !< flag if output is resorted
+
+    REAL(wp), DIMENSION(nxl:nxr,nys:nyn,nzb_do:nzt_do), INTENT(INOUT) ::  local_pf  !< local array
+                                                        !< to which output data is resorted to
+
     INTEGER(iwp) ::  char_to_int  !< for converting character to integer
     INTEGER(iwp) ::  found_index  !< index of a chemical compound
     INTEGER(iwp) ::  ib           !< running index: size bins
@@ -11672,10 +14595,6 @@
     INTEGER(iwp) ::  i            !<
     INTEGER(iwp) ::  j            !<
     INTEGER(iwp) ::  k            !<
-    INTEGER(iwp) ::  nzb_do       !<
-    INTEGER(iwp) ::  nzt_do       !<
-
-    LOGICAL ::  found      !<
 
     REAL(wp) ::  df                       !< For calculating LDSA: fraction of particles
                                           !< depositing in the alveolar (or tracheobronchial)
@@ -11683,13 +14602,17 @@
     REAL(wp) ::  mean_d                   !< Particle diameter in micrometres
     REAL(wp) ::  temp_bin                 !< temporary array for calculating output variables
 
-    REAL(wp), DIMENSION(nxl:nxr,nys:nyn,nzb_do:nzt_do) ::  local_pf  !< local
 
-    found     = .TRUE.
-    temp_bin  = 0.0_wp
+    found    = .TRUE.
+    resorted = .TRUE.
+    temp_bin = 0.0_wp
 
     IF ( variable(7:11) == 'N_bin' )  THEN
-       READ( variable(12:),* ) char_to_int
+       IF ( variable(LEN_TRIM(variable)-3:) == '_tra' )  THEN
+          READ( variable(12:LEN_TRIM(variable)-4),* ) char_to_int
+       ELSE
+          READ( variable(12:),* ) char_to_int
+       ENDIF
        IF ( char_to_int >= 1  .AND. char_to_int <= SUM( nbin ) )  THEN
 
           ib = char_to_int
@@ -11697,29 +14620,49 @@
              DO  i = nxl, nxr
                 DO  j = nys, nyn
                    DO  k = nzb_do, nzt_do
-                      local_pf(i,j,k) = MERGE( aerosol_number(ib)%conc(k,j,i), REAL( fill_value,   &
-                                               KIND = wp ), BTEST( topo_flags(k,j,i), 0 ) )
+                      IF ( variable(LEN_TRIM(variable)-3:) == '_tra' )  THEN
+                         local_pf(i,j,k) = aerosol_number_tra(ib)%conc(k,j,i)
+                      ELSE
+                         local_pf(i,j,k) = aerosol_number(ib)%conc(k,j,i)
+                      ENDIF
                    ENDDO
                 ENDDO
              ENDDO
           ELSE
-             IF ( .NOT. ALLOCATED( nbins_av ) )  THEN
-                ALLOCATE( nbins_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg,nbins_aerosol) )
-                nbins_av = REAL( fill_value, KIND = wp )
-             ENDIF
-             DO  i = nxl, nxr
-                DO  j = nys, nyn
-                   DO  k = nzb_do, nzt_do
-                      local_pf(i,j,k) = MERGE( nbins_av(k,j,i,ib), REAL( fill_value, KIND = wp ),  &
-                                               BTEST( topo_flags(k,j,i), 0 ) )
+             IF ( variable(LEN_TRIM(variable)-3:) == '_tra' )  THEN
+                IF ( .NOT. ALLOCATED( nbins_av_tra ) )  THEN
+                   ALLOCATE( nbins_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg,nbins_aerosol) )
+                   nbins_av_tra = 0.0_wp
+                ENDIF
+                DO  i = nxl, nxr
+                   DO  j = nys, nyn
+                      DO  k = nzb_do, nzt_do
+                         local_pf(i,j,k) = nbins_av_tra(k,j,i,ib)
+                      ENDDO
                    ENDDO
                 ENDDO
-             ENDDO
+             ELSE
+                IF ( .NOT. ALLOCATED( nbins_av ) )  THEN
+                   ALLOCATE( nbins_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg,nbins_aerosol) )
+                   nbins_av = 0.0_wp
+                ENDIF
+                DO  i = nxl, nxr
+                   DO  j = nys, nyn
+                      DO  k = nzb_do, nzt_do
+                         local_pf(i,j,k) = nbins_av(k,j,i,ib)
+                      ENDDO
+                   ENDDO
+                ENDDO
+             ENDIF
           ENDIF
        ENDIF
 
     ELSEIF ( variable(7:11) == 'm_bin' )  THEN
-       READ( variable(12:),* ) char_to_int
+       IF ( variable(LEN_TRIM(variable)-3:) == '_tra' )  THEN
+          READ( variable(12:LEN_TRIM(variable)-4),* ) char_to_int
+       ELSE
+          READ( variable(12:),* ) char_to_int
+       ENDIF
        IF ( char_to_int >= 1  .AND. char_to_int <= SUM( nbin ) )  THEN
 
           ib = char_to_int
@@ -11729,30 +14672,47 @@
                    DO  k = nzb_do, nzt_do
                       temp_bin = 0.0_wp
                       DO  ic = ib, ncomponents_mass * nbins_aerosol, nbins_aerosol
-                         temp_bin = temp_bin + aerosol_mass(ic)%conc(k,j,i)
+                         IF ( variable(LEN_TRIM(variable)-3:) == '_tra' )  THEN
+                            temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                         ELSE
+                            temp_bin = temp_bin + aerosol_mass(ic)%conc(k,j,i)
+                         ENDIF
                       ENDDO
-                      local_pf(i,j,k) = MERGE( temp_bin, REAL( fill_value, KIND = wp ),            &
-                                               BTEST( topo_flags(k,j,i), 0 ) )
+                      local_pf(i,j,k) = temp_bin
                    ENDDO
                 ENDDO
              ENDDO
           ELSE
-             IF ( .NOT. ALLOCATED( mbins_av ) )  THEN
-                ALLOCATE( mbins_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg,nbins_aerosol) )
-                mbins_av = REAL( fill_value, KIND = wp )
-             ENDIF
-             DO  i = nxl, nxr
-                DO  j = nys, nyn
-                   DO  k = nzb_do, nzt_do
-                      local_pf(i,j,k) = MERGE( mbins_av(k,j,i,ib), REAL( fill_value, KIND = wp ),  &
-                                               BTEST( topo_flags(k,j,i), 0 ) )
+             IF ( variable(LEN_TRIM(variable)-3:) == '_tra' )  THEN
+                IF ( .NOT. ALLOCATED( mbins_av_tra ) )  THEN
+                   ALLOCATE( mbins_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg,nbins_aerosol) )
+                   mbins_av_tra = 0.0_wp
+                ENDIF
+                DO  i = nxl, nxr
+                   DO  j = nys, nyn
+                      DO  k = nzb_do, nzt_do
+                         local_pf(i,j,k) = mbins_av_tra(k,j,i,ib)
+                      ENDDO
                    ENDDO
                 ENDDO
-             ENDDO
+             ELSE
+                IF ( .NOT. ALLOCATED( mbins_av ) )  THEN
+                   ALLOCATE( mbins_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg,nbins_aerosol) )
+                   mbins_av = 0.0_wp
+                ENDIF
+                DO  i = nxl, nxr
+                   DO  j = nys, nyn
+                      DO  k = nzb_do, nzt_do
+                         local_pf(i,j,k) = mbins_av(k,j,i,ib)
+                      ENDDO
+                   ENDDO
+                ENDDO
+             ENDIF
           ENDIF
        ENDIF
 
     ELSE
+
        SELECT CASE ( TRIM( variable(7:) ) )
 
           CASE ( 'g_H2SO4', 'g_HNO3', 'g_NH3', 'g_OCNV',  'g_OCSV' )
@@ -11766,28 +14726,52 @@
                 DO  i = nxl, nxr
                    DO  j = nys, nyn
                       DO  k = nzb_do, nzt_do
-                         local_pf(i,j,k) = MERGE( salsa_gas(found_index)%conc(k,j,i),              &
-                                                  REAL( fill_value, KIND = wp ),                   &
-                                                  BTEST( topo_flags(k,j,i), 0 ) )
+                         local_pf(i,j,k) = salsa_gas(found_index)%conc(k,j,i)
                       ENDDO
                    ENDDO
                 ENDDO
              ELSE
                 IF ( .NOT. ALLOCATED( salsa_gases_av ) )  THEN
                    ALLOCATE( salsa_gases_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg,ngases_salsa) )
-                   salsa_gases_av = REAL( fill_value, KIND = wp )
+                   salsa_gases_av = 0.0_wp
                 ENDIF
                 DO  i = nxl, nxr
                    DO  j = nys, nyn
                       DO  k = nzb_do, nzt_do
-!                          local_pf(i,j,k) = MERGE( to_be_resorted(k,j,i), REAL( fill_value,         &
-!                                                KIND = wp ), BTEST( topo_flags(k,j,i), 0 ) )
-                         local_pf(i,j,k) = MERGE( salsa_gases_av(k,j,i,found_index),               &
-                                                  REAL( fill_value, KIND = wp ),                   &
-                                                  BTEST( topo_flags(k,j,i), 0 ) )
+                         local_pf(i,j,k) = salsa_gases_av(k,j,i,found_index)
                       ENDDO
                    ENDDO
                 ENDDO
+             ENDIF
+! MODIFICATION: Added 3D output for new trace metal species
+          CASE ( 's_PB', 's_HG', 's_NI', 's_CD', 's_AS' )
+             IF ( is_used( prtcl, TRIM( variable(9:) ) ) )  THEN  ! 9: remove salsa_s_
+                found_index = get_index( prtcl, TRIM( variable(9:) ) )
+                IF ( av == 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb_do, nzt_do
+                            temp_bin = 0.0_wp
+                            DO  ic = ( found_index-1 )*nbins_aerosol+1, found_index*nbins_aerosol
+                               temp_bin = temp_bin + aerosol_mass(ic)%conc(k,j,i)
+                            ENDDO
+                            local_pf(i,j,k) = temp_bin
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ELSE
+                   IF ( .NOT. ALLOCATED( s_mass_av ) )  THEN
+                      ALLOCATE( s_mass_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg,ncomponents_mass) )
+                      s_mass_av = 0.0_wp
+                   ENDIF
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb_do, nzt_do
+                            local_pf(i,j,k) = s_mass_av(k,j,i,found_index)
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
              ENDIF
 
           CASE ( 'LDSA' )
@@ -11798,33 +14782,32 @@
                          temp_bin = 0.0_wp
                          DO  ib = 1, nbins_aerosol
 !
-!--                         Diameter in micrometres
+!--                         Diameter in micrometres.
                             mean_d = 1.0E+6_wp * ra_dry(k,j,i,ib) * 2.0_wp
 !
-!--                         Deposition factor: alveolar
+!--                         Deposition factor: alveolar.
                             df = ( 0.01555_wp / mean_d ) * ( EXP( -0.416_wp * ( LOG( mean_d ) +    &
-                                   2.84_wp )**2 ) + 19.11_wp * EXP( -0.482_wp * ( LOG( mean_d ) -  &
-                                   1.362_wp )**2 ) )
+                                                                   2.84_wp )**2 ) + 19.11_wp *     &
+                                                             EXP( -0.482_wp * ( LOG( mean_d ) -    &
+                                                                   1.362_wp )**2 ) )
 !
-!--                         Lung-deposited surface area LDSA (units mum2/cm3)
+!--                         Lung-deposited surface area LDSA (units mum2/cm3).
                             temp_bin = temp_bin + pi * mean_d**2 * df * 1.0E-6_wp *                &
                                        aerosol_number(ib)%conc(k,j,i)
                          ENDDO
-                         local_pf(i,j,k) = MERGE( temp_bin, REAL( fill_value, KIND = wp ),         &
-                                                  BTEST( topo_flags(k,j,i), 0 ) )
+                         local_pf(i,j,k) = temp_bin
                       ENDDO
                    ENDDO
                 ENDDO
              ELSE
                 IF ( .NOT. ALLOCATED( ldsa_av ) )  THEN
                    ALLOCATE( ldsa_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
-                   ldsa_av = REAL( fill_value, KIND = wp )
+                   ldsa_av = 0.0_wp
                 ENDIF
                 DO  i = nxl, nxr
                    DO  j = nys, nyn
                       DO  k = nzb_do, nzt_do
-                         local_pf(i,j,k) = MERGE( ldsa_av(k,j,i), REAL( fill_value, KIND = wp ),   &
-                                                  BTEST( topo_flags(k,j,i), 0 ) )
+                         local_pf(i,j,k) = ldsa_av(k,j,i)
                       ENDDO
                    ENDDO
                 ENDDO
@@ -11841,21 +14824,19 @@
                                temp_bin = temp_bin + aerosol_number(ib)%conc(k,j,i)
                             ENDIF
                          ENDDO
-                         local_pf(i,j,k) = MERGE( temp_bin, REAL( fill_value, KIND = wp ),         &
-                                                  BTEST( topo_flags(k,j,i), 0 ) )
+                         local_pf(i,j,k) = temp_bin
                       ENDDO
                    ENDDO
                 ENDDO
              ELSE
                 IF ( .NOT. ALLOCATED( nufp_av ) )  THEN
                    ALLOCATE( nufp_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
-                   nufp_av = REAL( fill_value, KIND = wp )
+                   nufp_av = 0.0_wp
                 ENDIF
                 DO  i = nxl, nxr
                    DO  j = nys, nyn
                       DO  k = nzb_do, nzt_do
-                         local_pf(i,j,k) = MERGE( nufp_av(k,j,i), REAL( fill_value, KIND = wp ),   &
-                                                  BTEST( topo_flags(k,j,i), 0 ) )
+                         local_pf(i,j,k) = nufp_av(k,j,i)
                       ENDDO
                    ENDDO
                 ENDDO
@@ -11870,21 +14851,19 @@
                          DO  ib = 1, nbins_aerosol
                             temp_bin = temp_bin + aerosol_number(ib)%conc(k,j,i)
                          ENDDO
-                         local_pf(i,j,k) = MERGE( temp_bin, REAL( fill_value, KIND = wp ),         &
-                                                  BTEST( topo_flags(k,j,i), 0 ) )
+                         local_pf(i,j,k) = temp_bin
                       ENDDO
                    ENDDO
                 ENDDO
              ELSE
                 IF ( .NOT. ALLOCATED( ntot_av ) )  THEN
                    ALLOCATE( ntot_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
-                   ntot_av = REAL( fill_value, KIND = wp )
+                   ntot_av = 0.0_wp
                 ENDIF
                 DO  i = nxl, nxr
                    DO  j = nys, nyn
                       DO  k = nzb_do, nzt_do
-                         local_pf(i,j,k) = MERGE( ntot_av(k,j,i), REAL( fill_value, KIND = wp ),   &
-                                                  BTEST( topo_flags(k,j,i), 0 ) )
+                         local_pf(i,j,k) = ntot_av(k,j,i)
                       ENDDO
                    ENDDO
                 ENDDO
@@ -11903,21 +14882,19 @@
                                ENDDO
                             ENDIF
                          ENDDO
-                         local_pf(i,j,k) = MERGE( temp_bin, REAL( fill_value, KIND = wp ),         &
-                                                  BTEST( topo_flags(k,j,i), 0 ) )
+                         local_pf(i,j,k) = temp_bin
                       ENDDO
                    ENDDO
                 ENDDO
              ELSE
                 IF ( .NOT. ALLOCATED( pm01_av ) )  THEN
                    ALLOCATE( pm01_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
-                   pm01_av = REAL( fill_value, KIND = wp )
+                   pm01_av = 0.0_wp
                 ENDIF
                 DO  i = nxl, nxr
                    DO  j = nys, nyn
                       DO  k = nzb_do, nzt_do
-                         local_pf(i,j,k) = MERGE( pm01_av(k,j,i), REAL( fill_value, KIND = wp ),   &
-                                                  BTEST( topo_flags(k,j,i), 0 ) )
+                         local_pf(i,j,k) = pm01_av(k,j,i)
                       ENDDO
                    ENDDO
                 ENDDO
@@ -11936,21 +14913,19 @@
                                ENDDO
                             ENDIF
                          ENDDO
-                         local_pf(i,j,k) = MERGE( temp_bin, REAL( fill_value, KIND = wp ),         &
-                                                  BTEST( topo_flags(k,j,i), 0 ) )
+                         local_pf(i,j,k) = temp_bin
                       ENDDO
                    ENDDO
                 ENDDO
              ELSE
                 IF ( .NOT. ALLOCATED( pm25_av ) )  THEN
                    ALLOCATE( pm25_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
-                   pm25_av = REAL( fill_value, KIND = wp )
+                   pm25_av = 0.0_wp
                 ENDIF
                 DO  i = nxl, nxr
                    DO  j = nys, nyn
                       DO  k = nzb_do, nzt_do
-                         local_pf(i,j,k) = MERGE( pm25_av(k,j,i), REAL( fill_value, KIND = wp ),   &
-                                                  BTEST( topo_flags(k,j,i), 0 ) )
+                         local_pf(i,j,k) = pm25_av(k,j,i)
                       ENDDO
                    ENDDO
                 ENDDO
@@ -11969,21 +14944,19 @@
                                ENDDO
                             ENDIF
                          ENDDO
-                         local_pf(i,j,k) = MERGE( temp_bin, REAL( fill_value, KIND = wp ),         &
-                                                  BTEST( topo_flags(k,j,i), 0 ) )
+                         local_pf(i,j,k) = temp_bin
                       ENDDO
                    ENDDO
                 ENDDO
              ELSE
                 IF ( .NOT. ALLOCATED( pm10_av ) )  THEN
                    ALLOCATE( pm10_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
-                   pm10_av = REAL( fill_value, KIND = wp )
+                   pm10_av = 0.0_wp
                 ENDIF
                 DO  i = nxl, nxr
                    DO  j = nys, nyn
                       DO  k = nzb_do, nzt_do
-                         local_pf(i,j,k) = MERGE( pm10_av(k,j,i), REAL( fill_value, KIND = wp ),   &
-                                                  BTEST( topo_flags(k,j,i), 0 ) )
+                         local_pf(i,j,k) = pm10_av(k,j,i)
                       ENDDO
                    ENDDO
                 ENDDO
@@ -11997,25 +14970,22 @@
                       DO  j = nys, nyn
                          DO  k = nzb_do, nzt_do
                             temp_bin = 0.0_wp
-                            DO  ic = ( found_index-1 ) * nbins_aerosol + 1, found_index * nbins_aerosol
+                            DO  ic = ( found_index-1 )*nbins_aerosol+1, found_index*nbins_aerosol
                                temp_bin = temp_bin + aerosol_mass(ic)%conc(k,j,i)
                             ENDDO
-                            local_pf(i,j,k) = MERGE( temp_bin, REAL( fill_value, KIND = wp ),      &
-                                                     BTEST( topo_flags(k,j,i), 0 ) )
+                            local_pf(i,j,k) = temp_bin
                          ENDDO
                       ENDDO
                    ENDDO
                 ELSE
                    IF ( .NOT. ALLOCATED( s_mass_av ) )  THEN
                       ALLOCATE( s_mass_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg,ncomponents_mass) )
-                      s_mass_av = REAL( fill_value, KIND = wp )
+                      s_mass_av = 0.0_wp
                    ENDIF
                    DO  i = nxl, nxr
                       DO  j = nys, nyn
                          DO  k = nzb_do, nzt_do
-                            local_pf(i,j,k) = MERGE( s_mass_av(k,j,i,found_index),                 &
-                                                     REAL( fill_value, KIND = wp ),                &
-                                                     BTEST( topo_flags(k,j,i), 0 ) )
+                            local_pf(i,j,k) = s_mass_av(k,j,i,found_index)
                          ENDDO
                       ENDDO
                    ENDDO
@@ -12029,56 +14999,311 @@
                    DO  j = nys, nyn
                       DO  k = nzb_do, nzt_do
                          temp_bin = 0.0_wp
-                         DO  ic = ( found_index-1 ) * nbins_aerosol + 1, found_index * nbins_aerosol
+                         DO  ic = ( found_index-1 )*nbins_aerosol+1, found_index*nbins_aerosol
                             temp_bin = temp_bin + aerosol_mass(ic)%conc(k,j,i)
                          ENDDO
-                         local_pf(i,j,k) = MERGE( temp_bin, REAL( fill_value, KIND = wp ),         &
-                                                  BTEST( topo_flags(k,j,i), 0 ) )
+                         local_pf(i,j,k) = temp_bin
                       ENDDO
                    ENDDO
                 ENDDO
              ELSE
                 IF ( .NOT. ALLOCATED( s_h2o_av ) )  THEN
                    ALLOCATE( s_h2o_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
-                   s_h2o_av = REAL( fill_value, KIND = wp )
+                   s_h2o_av = 0.0_wp
                 ENDIF
                 DO  i = nxl, nxr
                    DO  j = nys, nyn
                       DO  k = nzb_do, nzt_do
-                         local_pf(i,j,k) = MERGE( s_h2o_av(k,j,i), REAL( fill_value, KIND = wp ),  &
-                                                  BTEST( topo_flags(k,j,i), 0 ) )
+                         local_pf(i,j,k) = s_h2o_av(k,j,i)
                       ENDDO
                    ENDDO
                 ENDDO
              ENDIF
 
-          CASE DEFAULT
-             found = .FALSE.
+CASE ( 'LDSA_tra' )
+                DO  i = nxl, nxr
+                   DO  j = nys, nyn
+                      DO  k = nzb_do, nzt_do
+                         temp_bin = 0.0_wp
+                         DO  ib = 1, nbins_aerosol
+                            mean_d = 1.0E+6_wp * ra_dry(k,j,i,ib) * 2.0_wp
+                            IF ( mean_d > 0.0_wp )  THEN
+                               df = ( 0.058_wp + 0.015_wp * EXP( -0.5_wp * ( LOG10( mean_d ) &
+                                                     + 1.28_wp )**2 ) + 0.202_wp * EXP(       &
+                                                     -0.5_wp * ( LOG10( mean_d ) - 1.70_wp )**2 ) )
+                            ELSE
+                               df = 0.0_wp
+                            ENDIF
+                            temp_bin = temp_bin + df * aerosol_number_tra(ib)%conc(k,j,i) *     &
+                                       1.0E-12_wp * ( 0.5_wp * ra_dry(k,j,i,ib) * 2.0_wp )**2 * 4.0_wp * pi
+                         ENDDO
+                         local_pf(i,j,k) = temp_bin
+                      ENDDO
+                   ENDDO
+                ENDDO
+
+             CASE ( 'PM0.1_tra' )
+                DO  i = nxl, nxr
+                   DO  j = nys, nyn
+                      DO  k = nzb_do, nzt_do
+                         temp_bin = 0.0_wp
+                         DO  ib = 1, nbins_aerosol
+                            IF ( 2.0_wp * ra_dry(k,j,i,ib) <= 0.1E-6_wp )  THEN
+                               DO  ic = ib, nbins_aerosol * ncc, nbins_aerosol
+                                  temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                               ENDDO
+                            ENDIF
+                         ENDDO
+                         local_pf(i,j,k) = temp_bin
+                      ENDDO
+                   ENDDO
+                ENDDO
+
+             CASE ( 'PM2.5_tra' )
+                DO  i = nxl, nxr
+                   DO  j = nys, nyn
+                      DO  k = nzb_do, nzt_do
+                         temp_bin = 0.0_wp
+                         DO  ib = 1, nbins_aerosol
+                            IF ( 2.0_wp * ra_dry(k,j,i,ib) <= 2.5E-6_wp )  THEN
+                               DO  ic = ib, nbins_aerosol * ncc, nbins_aerosol
+                                  temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                               ENDDO
+                            ENDIF
+                         ENDDO
+                         local_pf(i,j,k) = temp_bin
+                      ENDDO
+                   ENDDO
+                ENDDO
+
+             CASE ( 'PM10_tra' )
+                DO  i = nxl, nxr
+                   DO  j = nys, nyn
+                      DO  k = nzb_do, nzt_do
+                         temp_bin = 0.0_wp
+                         DO  ib = 1, nbins_aerosol
+                            IF ( 2.0_wp * ra_dry(k,j,i,ib) <= 10.0E-6_wp )  THEN
+                               DO  ic = ib, nbins_aerosol * ncc, nbins_aerosol
+                                  temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                               ENDDO
+                            ENDIF
+                         ENDDO
+                         local_pf(i,j,k) = temp_bin
+                      ENDDO
+                   ENDDO
+                ENDDO
+
+             CASE ( 'N_UFP_tra' )
+                DO  i = nxl, nxr
+                   DO  j = nys, nyn
+                      DO  k = nzb_do, nzt_do
+                         temp_bin = 0.0_wp
+                         DO  ib = 1, nbins_aerosol
+                            IF ( 2.0_wp * ra_dry(k,j,i,ib) <= 0.1E-6_wp )  THEN
+                               temp_bin = temp_bin + aerosol_number_tra(ib)%conc(k,j,i)
+                            ENDIF
+                         ENDDO
+                         local_pf(i,j,k) = temp_bin
+                      ENDDO
+                   ENDDO
+                ENDDO
+
+             CASE ( 'Ntot_tra' )
+                DO  i = nxl, nxr
+                   DO  j = nys, nyn
+                      DO  k = nzb_do, nzt_do
+                         temp_bin = 0.0_wp
+                         DO  ib = 1, nbins_aerosol
+                            temp_bin = temp_bin + aerosol_number_tra(ib)%conc(k,j,i)
+                         ENDDO
+                         local_pf(i,j,k) = temp_bin
+                      ENDDO
+                   ENDDO
+                ENDDO
+
+             CASE ( 's_SO4_tra' )
+                IF ( index_so4 > 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb_do, nzt_do
+                            temp_bin = 0.0_wp
+                            DO  ib = 1, nbins_aerosol
+                               ic = ( index_so4-1 ) * nbins_aerosol + ib
+                               temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                            ENDDO
+                            local_pf(i,j,k) = temp_bin
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ELSE
+                   found = .FALSE.
+                ENDIF
+
+             CASE ( 's_OC_tra' )
+                IF ( index_oc > 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb_do, nzt_do
+                            temp_bin = 0.0_wp
+                            DO  ib = 1, nbins_aerosol
+                               ic = ( index_oc-1 ) * nbins_aerosol + ib
+                               temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                            ENDDO
+                            local_pf(i,j,k) = temp_bin
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ELSE
+                   found = .FALSE.
+                ENDIF
+
+             CASE ( 's_BC_tra' )
+                IF ( index_bc > 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb_do, nzt_do
+                            temp_bin = 0.0_wp
+                            DO  ib = 1, nbins_aerosol
+                               ic = ( index_bc-1 ) * nbins_aerosol + ib
+                               temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                            ENDDO
+                            local_pf(i,j,k) = temp_bin
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ELSE
+                   found = .FALSE.
+                ENDIF
+
+             CASE ( 's_DU_tra' )
+                IF ( index_du > 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb_do, nzt_do
+                            temp_bin = 0.0_wp
+                            DO  ib = 1, nbins_aerosol
+                               ic = ( index_du-1 ) * nbins_aerosol + ib
+                               temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                            ENDDO
+                            local_pf(i,j,k) = temp_bin
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ELSE
+                   found = .FALSE.
+                ENDIF
+
+             CASE ( 's_SS_tra' )
+                IF ( index_ss > 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb_do, nzt_do
+                            temp_bin = 0.0_wp
+                            DO  ib = 1, nbins_aerosol
+                               ic = ( index_ss-1 ) * nbins_aerosol + ib
+                               temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                            ENDDO
+                            local_pf(i,j,k) = temp_bin
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ELSE
+                   found = .FALSE.
+                ENDIF
+
+             CASE ( 's_NO_tra' )
+                IF ( index_no > 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb_do, nzt_do
+                            temp_bin = 0.0_wp
+                            DO  ib = 1, nbins_aerosol
+                               ic = ( index_no-1 ) * nbins_aerosol + ib
+                               temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                            ENDDO
+                            local_pf(i,j,k) = temp_bin
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ELSE
+                   found = .FALSE.
+                ENDIF
+
+             CASE ( 's_NH_tra' )
+                IF ( index_nh > 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb_do, nzt_do
+                            temp_bin = 0.0_wp
+                            DO  ib = 1, nbins_aerosol
+                               ic = ( index_nh-1 ) * nbins_aerosol + ib
+                               temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                            ENDDO
+                            local_pf(i,j,k) = temp_bin
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ELSE
+                   found = .FALSE.
+                ENDIF
+
+             CASE ( 's_PB_tra', 's_HG_tra', 's_NI_tra', 's_CD_tra', 's_AS_tra' )
+                found_index = -1
+                IF ( variable(7:10) == 's_PB' .AND. index_pb > 0 )  found_index = index_pb
+                IF ( variable(7:10) == 's_HG' .AND. index_hg > 0 )  found_index = index_hg
+                IF ( variable(7:10) == 's_NI' .AND. index_ni > 0 )  found_index = index_ni
+                IF ( variable(7:10) == 's_CD' .AND. index_cd > 0 )  found_index = index_cd
+                IF ( variable(7:10) == 's_AS' .AND. index_as > 0 )  found_index = index_as
+                IF ( found_index > 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb_do, nzt_do
+                            temp_bin = 0.0_wp
+                            DO  ib = 1, nbins_aerosol
+                               ic = ( found_index-1 ) * nbins_aerosol + ib
+                               temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                            ENDDO
+                            local_pf(i,j,k) = temp_bin
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ELSE
+                   found = .FALSE.
+                ENDIF
+
+           CASE DEFAULT
+             found    = .FALSE.
+             resorted = .FALSE.
 
        END SELECT
     ENDIF
 
  END SUBROUTINE salsa_data_output_3d
 
-!------------------------------------------------------------------------------!
-!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Subroutine defining mask output variables
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_data_output_mask( av, variable, found, local_pf, mid )
 
     USE arrays_3d,                                                                                 &
         ONLY:  tend
 
-    USE control_parameters,                                                                        &
-        ONLY:  mask_i, mask_j, mask_k, mask_size_l, mask_surface, nz_do3d
+    USE control_parameters,                                                                        \
+        ONLY:  mask_i,                                                                             &
+               mask_j,                                                                             &
+               mask_k,                                                                             \
+               mask_size_l,                                                                        \
+               mask_surface,                                                                       \
+               nz_do3d
 
     IMPLICIT NONE
 
     CHARACTER(LEN=5) ::  grid      !< flag to distinquish between staggered grid
     CHARACTER(LEN=*) ::  variable  !<
-    CHARACTER(LEN=7) ::  vari      !< trimmed format of variable
+    CHARACTER(LEN=10) ::  vari     !< trimmed format of variable
 
     INTEGER(iwp) ::  av             !<
     INTEGER(iwp) ::  char_to_int    !< for converting character to integer
@@ -12108,6 +15333,7 @@
 
     REAL(wp), DIMENSION(:,:,:), POINTER ::  to_be_resorted  !< pointer
 
+
     found      = .TRUE.
     resorted   = .FALSE.
     grid       = 's'
@@ -12116,7 +15342,11 @@
     temp_bin   = 0.0_wp
 
     IF ( variable(7:11) == 'N_bin' )  THEN
-       READ( variable(12:),* ) char_to_int
+       IF ( variable(LEN_TRIM(variable)-3:) == '_tra' )  THEN
+          READ( variable(12:LEN_TRIM(variable)-4),* ) char_to_int
+       ELSE
+          READ( variable(12:),* ) char_to_int
+       ENDIF
        IF ( char_to_int >= 1  .AND. char_to_int <= SUM( nbin ) )  THEN
           ib = char_to_int
           IF ( av == 0 )  THEN
@@ -12124,8 +15354,13 @@
                 DO  i = 1, mask_size_l(mid,1)
                    DO  j = 1, mask_size_l(mid,2)
                       DO  k = 1, mask_size_l(mid,3)
-                         local_pf(i,j,k) = aerosol_number(ib)%conc( mask_k(mid,k), mask_j(mid,j),  &
-                                                                    mask_i(mid,i) )
+                         IF ( variable(LEN_TRIM(variable)-3:) == '_tra' )  THEN
+                            local_pf(i,j,k) = aerosol_number_tra(ib)%conc( mask_k(mid,k), mask_j(mid,j),  &
+                                                                       mask_i(mid,i) )
+                         ELSE
+                            local_pf(i,j,k) = aerosol_number(ib)%conc( mask_k(mid,k), mask_j(mid,j),  &
+                                                                       mask_i(mid,i) )
+                         ENDIF
                       ENDDO
                    ENDDO
                 ENDDO
@@ -12140,11 +15375,13 @@
                       DO  k = 1, mask_size_l(mid,3)
                          kk = MIN( ktt + mask_k(mid,k) - 1, nzt+1 )
 !
-!--                      Set value if not in building, else set fill value
-                         IF ( BTEST( topo_flags(kk,jm,im), 6 ) )  THEN
-                            local_pf(i,j,k) = fill_value
-                         ELSE
-                            local_pf(i,j,k) = aerosol_number(ib)%conc(kk,jm,im)
+!--                      Set value if not in building.
+                         IF ( .NOT. BTEST( topo_flags(kk,jm,im), 6 ) )  THEN
+                            IF ( variable(LEN_TRIM(variable)-3:) == '_tra' )  THEN
+                               local_pf(i,j,k) = aerosol_number_tra(ib)%conc(kk,jm,im)
+                            ELSE
+                               local_pf(i,j,k) = aerosol_number(ib)%conc(kk,jm,im)
+                            ENDIF
                          ENDIF
                       ENDDO
                    ENDDO
@@ -12152,14 +15389,21 @@
              ENDIF
              resorted = .TRUE.
           ELSE
-             temp_array = nbins_av(:,:,:,ib)
+             IF ( variable(LEN_TRIM(variable)-3:) == '_tra' )  THEN
+                temp_array = nbins_av_tra(:,:,:,ib)
+             ELSE
+                temp_array = nbins_av(:,:,:,ib)
+             ENDIF
              to_be_resorted => temp_array
           ENDIF
        ENDIF
 
     ELSEIF ( variable(7:11) == 'm_bin' )  THEN
-
-       READ( variable(12:),* ) char_to_int
+       IF ( variable(LEN_TRIM(variable)-3:) == '_tra' )  THEN
+          READ( variable(12:LEN_TRIM(variable)-4),* ) char_to_int
+       ELSE
+          READ( variable(12:),* ) char_to_int
+       ENDIF
        IF ( char_to_int >= 1  .AND. char_to_int <= SUM( nbin ) )  THEN
 
           ib = char_to_int
@@ -12169,7 +15413,11 @@
                    DO  k = nzb, nz_do3d
                       temp_bin = 0.0_wp
                       DO  ic = ib, ncomponents_mass * nbins_aerosol, nbins_aerosol
-                         temp_bin = temp_bin + aerosol_mass(ic)%conc(k,j,i)
+                         IF ( variable(LEN_TRIM(variable)-3:) == '_tra' )  THEN
+                            temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                         ELSE
+                            temp_bin = temp_bin + aerosol_mass(ic)%conc(k,j,i)
+                         ENDIF
                       ENDDO
                       tend(k,j,i) = temp_bin
                    ENDDO
@@ -12187,17 +15435,15 @@
                 DO  i = 1, mask_size_l(mid,1)
                    DO  j = 1, mask_size_l(mid,2)
 !
-!--                   Get k index of the lowest non-terrain grid point
+!--                   Get k index of the lowest non-terrain grid point.
                       im = mask_i(mid,i)
                       jm = mask_j(mid,j)
                       ktt = MINLOC( MERGE( 1, 0, BTEST( topo_flags(:,jm,im), 5 ) ), DIM = 1 ) - 1
                       DO  k = 1, mask_size_l(mid,3)
                          kk = MIN( ktt + mask_k(mid,k) - 1, nzt+1 )
 !
-!--                      Set value if not in building, else set fill value
-                         IF ( BTEST( topo_flags(kk,jm,im), 6 ) )  THEN
-                            local_pf(i,j,k) = fill_value
-                         ELSE
+!--                      Set value if not in building.
+                         IF ( .NOT. BTEST( topo_flags(kk,jm,im), 6 ) )  THEN
                             local_pf(i,j,k) = tend(kk,jm,im)
                          ENDIF
                       ENDDO
@@ -12206,7 +15452,11 @@
              ENDIF
              resorted = .TRUE.
           ELSE
-             temp_array = mbins_av(:,:,:,ib)
+             IF ( variable(LEN_TRIM(variable)-3:) == '_tra' )  THEN
+                temp_array = mbins_av_tra(:,:,:,ib)
+             ELSE
+                temp_array = mbins_av(:,:,:,ib)
+             ENDIF
              to_be_resorted => temp_array
           ENDIF
        ENDIF
@@ -12229,6 +15479,56 @@
                 IF ( vari == 'g_OCNV')  temp_array = salsa_gases_av(:,:,:,4)
                 IF ( vari == 'g_OCSV')  temp_array = salsa_gases_av(:,:,:,5)
                 to_be_resorted => temp_array
+             ENDIF
+! MODIFICATION: Added mask output for new trace metal species
+          CASE ( 's_PB', 's_HG', 's_NI', 's_CD', 's_AS' )
+             IF ( is_used( prtcl, TRIM( variable(9:) ) ) )  THEN
+                found_index = get_index( prtcl, TRIM( variable(9:) ) )
+                IF ( av == 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nz_do3d
+                            temp_bin = 0.0_wp
+                            DO  ic = ( found_index-1 ) * nbins_aerosol + 1, found_index * nbins_aerosol
+                               temp_bin = temp_bin + aerosol_mass(ic)%conc(k,j,i)
+                            ENDDO
+                            tend(k,j,i) = temp_bin
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                   IF ( .NOT. mask_surface(mid) )  THEN
+                      DO  i = 1, mask_size_l(mid,1)
+                         DO  j = 1, mask_size_l(mid,2)
+                            DO  k = 1, mask_size_l(mid,3)
+                               local_pf(i,j,k) = tend( mask_k(mid,k), mask_j(mid,j), mask_i(mid,i) )
+                            ENDDO
+                         ENDDO
+                      ENDDO
+                   ELSE
+                      DO  i = 1, mask_size_l(mid,1)
+                         DO  j = 1, mask_size_l(mid,2)
+!
+!--                         Get k index of the lowest non-terrain grid point.
+                            im = mask_i(mid,i)
+                            jm = mask_j(mid,j)
+                            ktt = MINLOC( MERGE( 1, 0, BTEST( topo_flags(:,jm,im), 5 ) ),          &
+                                          DIM = 1 ) - 1
+                            DO  k = 1, mask_size_l(mid,3)
+                               kk = MIN( ktt + mask_k(mid,k) - 1, nzt+1 )
+!
+!--                            Set value if not in building.
+                               IF ( .NOT. BTEST( topo_flags(kk,jm,im), 6 ) )  THEN
+                                  local_pf(i,j,k) = tend(kk,jm,im)
+                               ENDIF
+                            ENDDO
+                         ENDDO
+                      ENDDO
+                   ENDIF
+                   resorted = .TRUE.
+                ELSE
+                   temp_array = s_mass_av(:,:,:,found_index)
+                   to_be_resorted => temp_array
+                ENDIF
              ENDIF
 
           CASE ( 'LDSA' )
@@ -12275,10 +15575,8 @@
                          DO  k = 1, mask_size_l(mid,3)
                             kk = MIN( ktt + mask_k(mid,k) - 1, nzt+1 )
 !
-!--                         Set value if not in building, else set fill value
-                            IF ( BTEST( topo_flags(kk,jm,im), 6 ) )  THEN
-                               local_pf(i,j,k) = fill_value
-                            ELSE
+!--                         Set value if not in building.
+                            IF ( .NOT. BTEST( topo_flags(kk,jm,im), 6 ) )  THEN
                                local_pf(i,j,k) = tend(kk,jm,im)
                             ENDIF
                          ENDDO
@@ -12317,7 +15615,7 @@
                    DO  i = 1, mask_size_l(mid,1)
                       DO  j = 1, mask_size_l(mid,2)
 !
-!--                      Get k index of the lowest non-terrain grid point
+!--                      Get k index of the lowest non-terrain grid point.
                          im = mask_i(mid,i)
                          jm = mask_j(mid,j)
                          ktt = MINLOC( MERGE( 1, 0, BTEST( topo_flags(:,jm,im), 5 ) ),             &
@@ -12325,10 +15623,8 @@
                          DO  k = 1, mask_size_l(mid,3)
                             kk = MIN( ktt + mask_k(mid,k) - 1, nzt+1 )
 !
-!--                         Set value if not in building, else set fill value
-                            IF ( BTEST( topo_flags(kk,jm,im), 6 ) )  THEN
-                               local_pf(i,j,k) = fill_value
-                            ELSE
+!--                         Set value if not in building.
+                            IF ( .NOT. BTEST( topo_flags(kk,jm,im), 6 ) )  THEN
                                local_pf(i,j,k) = tend(kk,jm,im)
                             ENDIF
                          ENDDO
@@ -12365,7 +15661,7 @@
                    DO  i = 1, mask_size_l(mid,1)
                       DO  j = 1, mask_size_l(mid,2)
 !
-!--                      Get k index of the lowest non-terrain grid point
+!--                      Get k index of the lowest non-terrain grid point.
                          im = mask_i(mid,i)
                          jm = mask_j(mid,j)
                          ktt = MINLOC( MERGE( 1, 0, BTEST( topo_flags(:,jm,im), 5 ) ),             &
@@ -12373,10 +15669,8 @@
                          DO  k = 1, mask_size_l(mid,3)
                             kk = MIN( ktt + mask_k(mid,k) - 1, nzt+1 )
 !
-!--                         Set value if not in building, else set fill value
-                            IF ( BTEST( topo_flags(kk,jm,im), 6 ) )  THEN
-                               local_pf(i,j,k) = fill_value
-                            ELSE
+!--                         Set value if not in building.
+                            IF ( .NOT. BTEST( topo_flags(kk,jm,im), 6 ) )  THEN
                                local_pf(i,j,k) = tend(kk,jm,im)
                             ENDIF
                          ENDDO
@@ -12417,7 +15711,7 @@
                    DO  i = 1, mask_size_l(mid,1)
                       DO  j = 1, mask_size_l(mid,2)
 !
-!--                      Get k index of the lowest non-terrain grid point
+!--                      Get k index of the lowest non-terrain grid point.
                          im = mask_i(mid,i)
                          jm = mask_j(mid,j)
                          ktt = MINLOC( MERGE( 1, 0, BTEST( topo_flags(:,jm,im), 5 ) ),             &
@@ -12425,10 +15719,8 @@
                          DO  k = 1, mask_size_l(mid,3)
                             kk = MIN( ktt + mask_k(mid,k) - 1, nzt+1 )
 !
-!--                         Set value if not in building, else set fill value
-                            IF ( BTEST( topo_flags(kk,jm,im), 6 ) )  THEN
-                               local_pf(i,j,k) = fill_value
-                            ELSE
+!--                         Set value if not in building.
+                            IF ( .NOT. BTEST( topo_flags(kk,jm,im), 6 ) )  THEN
                                local_pf(i,j,k) = tend(kk,jm,im)
                             ENDIF
                          ENDDO
@@ -12469,7 +15761,7 @@
                    DO  i = 1, mask_size_l(mid,1)
                       DO  j = 1, mask_size_l(mid,2)
 !
-!--                      Get k index of the lowest non-terrain grid point
+!--                      Get k index of the lowest non-terrain grid point.
                          im = mask_i(mid,i)
                          jm = mask_j(mid,j)
                          ktt = MINLOC( MERGE( 1, 0, BTEST( topo_flags(:,jm,im), 5 ) ),             &
@@ -12477,10 +15769,8 @@
                          DO  k = 1, mask_size_l(mid,3)
                             kk = MIN( ktt + mask_k(mid,k) - 1, nzt+1 )
 !
-!--                         Set value if not in building, else set fill value
-                            IF ( BTEST( topo_flags(kk,jm,im), 6 ) )  THEN
-                               local_pf(i,j,k) = fill_value
-                            ELSE
+!--                         Set value if not in building.
+                            IF ( .NOT. BTEST( topo_flags(kk,jm,im), 6 ) )  THEN
                                local_pf(i,j,k) = tend(kk,jm,im)
                             ENDIF
                          ENDDO
@@ -12521,7 +15811,7 @@
                    DO  i = 1, mask_size_l(mid,1)
                       DO  j = 1, mask_size_l(mid,2)
 !
-!--                      Get k index of the lowest non-terrain grid point
+!--                      Get k index of the lowest non-terrain grid point.
                          im = mask_i(mid,i)
                          jm = mask_j(mid,j)
                          ktt = MINLOC( MERGE( 1, 0, BTEST( topo_flags(:,jm,im), 5 ) ),             &
@@ -12529,10 +15819,8 @@
                          DO  k = 1, mask_size_l(mid,3)
                             kk = MIN( ktt + mask_k(mid,k) - 1, nzt+1 )
 !
-!--                         Set value if not in building, else set fill value
-                            IF ( BTEST( topo_flags(kk,jm,im), 6 ) )  THEN
-                               local_pf(i,j,k) = fill_value
-                            ELSE
+!--                         Set value if not in building.
+                            IF ( .NOT. BTEST( topo_flags(kk,jm,im), 6 ) )  THEN
                                local_pf(i,j,k) = tend(kk,jm,im)
                             ENDIF
                          ENDDO
@@ -12570,19 +15858,17 @@
                    ELSE
                       DO  i = 1, mask_size_l(mid,1)
                          DO  j = 1, mask_size_l(mid,2)
-   !
-   !--                      Get k index of the lowest non-terrain grid point
+!
+!--                         Get k index of the lowest non-terrain grid point.
                             im = mask_i(mid,i)
                             jm = mask_j(mid,j)
                             ktt = MINLOC( MERGE( 1, 0, BTEST( topo_flags(:,jm,im), 5 ) ),          &
                                           DIM = 1 ) - 1
                             DO  k = 1, mask_size_l(mid,3)
                                kk = MIN( ktt + mask_k(mid,k) - 1, nzt+1 )
-   !
-   !--                         Set value if not in building, else set fill value
-                               IF ( BTEST( topo_flags(kk,jm,im), 6 ) )  THEN
-                                  local_pf(i,j,k) = fill_value
-                               ELSE
+!
+!--                            Set value if not in building.
+                               IF ( .NOT. BTEST( topo_flags(kk,jm,im), 6 ) )  THEN
                                   local_pf(i,j,k) = tend(kk,jm,im)
                                ENDIF
                             ENDDO
@@ -12594,8 +15880,6 @@
                    temp_array = s_mass_av(:,:,:,found_index)
                    to_be_resorted => temp_array
                 ENDIF
-             ELSE
-                local_pf = fill_value
              ENDIF
 
           CASE ( 's_H2O' )
@@ -12624,7 +15908,7 @@
                    DO  i = 1, mask_size_l(mid,1)
                       DO  j = 1, mask_size_l(mid,2)
 !
-!--                      Get k index of the lowest non-terrain grid point
+!--                      Get k index of the lowest non-terrain grid point.
                          im = mask_i(mid,i)
                          jm = mask_j(mid,j)
                          ktt = MINLOC( MERGE( 1, 0, BTEST( topo_flags(:,jm,im), 5 ) ),             &
@@ -12632,10 +15916,8 @@
                          DO  k = 1, mask_size_l(mid,3)
                             kk = MIN( ktt + mask_k(mid,k) - 1, nzt+1 )
 !
-!--                         Set value if not in building, else set fill value
-                            IF ( BTEST( topo_flags(kk,jm,im), 6 ) )  THEN
-                               local_pf(i,j,k) = fill_value
-                            ELSE
+!--                         Set value if not in building.
+                            IF ( .NOT. BTEST( topo_flags(kk,jm,im), 6 ) )  THEN
                                local_pf(i,j,k) =  tend(kk,jm,im)
                             ENDIF
                          ENDDO
@@ -12645,6 +15927,236 @@
                 resorted = .TRUE.
              ELSE
                 to_be_resorted => s_h2o_av
+             ENDIF
+
+          CASE ( 'LDSA_tra' )
+             IF ( av == 0 )  THEN
+                DO  i = nxl, nxr
+                   DO  j = nys, nyn
+                      DO  k = nzb, nz_do3d
+                         temp_bin = 0.0_wp
+                         DO  ib = 1, nbins_aerosol
+!
+!--                         Diameter in micrometres
+                            mean_d = 1.0E+6_wp * ra_dry(k,j,i,ib) * 2.0_wp
+!
+!--                         Deposition factor: alveolar
+                            df = ( 0.01555_wp / mean_d ) * ( EXP( -0.416_wp * ( LOG( mean_d ) +    &
+                                   2.84_wp )**2 ) + 19.11_wp * EXP( -0.482_wp * ( LOG( mean_d ) -  &
+                                   1.362_wp )**2 ) )
+!
+!--                         Lung-deposited surface area LDSA (units mum2/cm3)
+                            temp_bin = temp_bin + pi * mean_d**2 * df * 1.0E-6_wp *                &
+                                       aerosol_number_tra(ib)%conc(k,j,i)
+                         ENDDO
+                         tend(k,j,i) = temp_bin
+                      ENDDO
+                   ENDDO
+                ENDDO
+                IF ( .NOT. mask_surface(mid) )  THEN
+                   DO  i = 1, mask_size_l(mid,1)
+                      DO  j = 1, mask_size_l(mid,2)
+                         DO  k = 1, mask_size_l(mid,3)
+                            local_pf(i,j,k) = tend( mask_k(mid,k),  mask_j(mid,j), mask_i(mid,i) )
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ELSE
+                   DO  i = 1, mask_size_l(mid,1)
+                      DO  j = 1, mask_size_l(mid,2)
+!
+!--                      Get k index of the lowest non-terrain grid point
+                         im = mask_i(mid,i)
+                         jm = mask_j(mid,j)
+                         ktt = MINLOC( MERGE( 1, 0, BTEST( topo_flags(:,jm,im), 5 ) ),             &
+                                       DIM = 1 ) - 1
+                         DO  k = 1, mask_size_l(mid,3)
+                            kk = MIN( ktt + mask_k(mid,k) - 1, nzt+1 )
+!
+!--                         Set value if not in building.
+                            IF ( .NOT. BTEST( topo_flags(kk,jm,im), 6 ) )  THEN
+                               local_pf(i,j,k) = tend(kk,jm,im)
+                            ENDIF
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+                resorted = .TRUE.
+             ELSE
+                IF ( .NOT. ALLOCATED( ldsa_av_tra ) )  THEN
+                   ALLOCATE( ldsa_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
+                   ldsa_av_tra = 0.0_wp
+                ENDIF
+                to_be_resorted => ldsa_av_tra
+             ENDIF
+
+          CASE ( 'PM0.1_tra', 'PM2.5_tra', 'PM10_tra' )
+             vari = TRIM( variable(7:) )
+             IF ( av == 0 )  THEN
+                DO  i = nxl, nxr
+                   DO  j = nys, nyn
+                      DO  k = nzb, nz_do3d
+                         temp_bin = 0.0_wp
+                         DO  ib = 1, nbins_aerosol
+                            IF ( ( vari == 'PM0.1_tra' .AND. 2.0_wp * ra_dry(k,j,i,ib) <= 0.1E-6_wp ) .OR. &
+                                 ( vari == 'PM2.5_tra' .AND. 2.0_wp * ra_dry(k,j,i,ib) <= 2.5E-6_wp ) .OR. &
+                                 ( vari == 'PM10_tra'  .AND. 2.0_wp * ra_dry(k,j,i,ib) <= 10.0E-6_wp ) )  THEN
+                               DO  ic = ib, nbins_aerosol * ncc, nbins_aerosol
+                                  temp_bin = temp_bin + aerosol_mass_tra(ic)%conc(k,j,i)
+                               ENDDO
+                            ENDIF
+                         ENDDO
+                         tend(k,j,i) = temp_bin
+                      ENDDO
+                   ENDDO
+                ENDDO
+                IF ( .NOT. mask_surface(mid) )  THEN
+                   DO  i = 1, mask_size_l(mid,1)
+                      DO  j = 1, mask_size_l(mid,2)
+                         DO  k = 1, mask_size_l(mid,3)
+                            local_pf(i,j,k) = tend( mask_k(mid,k),  mask_j(mid,j), mask_i(mid,i) )
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ELSE
+                   DO  i = 1, mask_size_l(mid,1)
+                      DO  j = 1, mask_size_l(mid,2)
+!
+!--                      Get k index of the lowest non-terrain grid point.
+                         im = mask_i(mid,i)
+                         jm = mask_j(mid,j)
+                         ktt = MINLOC( MERGE( 1, 0, BTEST( topo_flags(:,jm,im), 5 ) ),             &
+                                       DIM = 1 ) - 1
+                         DO  k = 1, mask_size_l(mid,3)
+                            kk = MIN( ktt + mask_k(mid,k) - 1, nzt+1 )
+!
+!--                         Set value if not in building.
+                            IF ( .NOT. BTEST( topo_flags(kk,jm,im), 6 ) )  THEN
+                               local_pf(i,j,k) = tend(kk,jm,im)
+                            ENDIF
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+                resorted = .TRUE.
+             ELSE
+                IF ( .NOT. ALLOCATED( pm01_av_tra ) )  THEN
+                   ALLOCATE( pm01_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
+                   pm01_av_tra = 0.0_wp
+                ENDIF
+                to_be_resorted => pm01_av_tra
+             ENDIF
+
+          CASE ( 'N_UFP_tra', 'Ntot_tra' )
+             vari = TRIM( variable(7:) )
+             IF ( av == 0 )  THEN
+                DO  i = nxl, nxr
+                   DO  j = nys, nyn
+                      DO  k = nzb, nz_do3d
+                         temp_bin = 0.0_wp
+                         DO  ib = 1, nbins_aerosol
+                            IF ( vari == 'Ntot_tra' )  THEN
+                               temp_bin = temp_bin + aerosol_number_tra(ib)%conc(k,j,i)
+                            ELSEIF ( vari == 'N_UFP_tra' .AND.                                     &
+                                     2.0_wp * ra_dry(k,j,i,ib) <= 0.1E-6_wp )  THEN
+                               temp_bin = temp_bin + aerosol_number_tra(ib)%conc(k,j,i)
+                            ENDIF
+                         ENDDO
+                         tend(k,j,i) = temp_bin
+                      ENDDO
+                   ENDDO
+                ENDDO
+                IF ( .NOT. mask_surface(mid) )  THEN
+                   DO  i = 1, mask_size_l(mid,1)
+                      DO  j = 1, mask_size_l(mid,2)
+                         DO  k = 1, mask_size_l(mid,3)
+                            local_pf(i,j,k) = tend( mask_k(mid,k),  mask_j(mid,j), mask_i(mid,i) )
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ELSE
+                   DO  i = 1, mask_size_l(mid,1)
+                      DO  j = 1, mask_size_l(mid,2)
+!
+!--                      Get k index of the lowest non-terrain grid point.
+                         im = mask_i(mid,i)
+                         jm = mask_j(mid,j)
+                         ktt = MINLOC( MERGE( 1, 0, BTEST( topo_flags(:,jm,im), 5 ) ),             &
+                                       DIM = 1 ) - 1
+                         DO  k = 1, mask_size_l(mid,3)
+                            kk = MIN( ktt + mask_k(mid,k) - 1, nzt+1 )
+!
+!--                         Set value if not in building.
+                            IF ( .NOT. BTEST( topo_flags(kk,jm,im), 6 ) )  THEN
+                               local_pf(i,j,k) = tend(kk,jm,im)
+                            ENDIF
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDIF
+                resorted = .TRUE.
+             ELSE
+                IF ( .NOT. ALLOCATED( ntot_av_tra ) )  THEN
+                   ALLOCATE( ntot_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
+                   ntot_av_tra = 0.0_wp
+                ENDIF
+                to_be_resorted => ntot_av_tra
+             ENDIF
+
+          CASE ( 's_SO4_tra', 's_OC_tra', 's_BC_tra', 's_DU_tra', 's_SS_tra', &
+                 's_NO_tra', 's_NH_tra',                                     &
+                 's_PB_tra', 's_HG_tra', 's_NI_tra', 's_CD_tra', 's_AS_tra' )
+             IF ( is_used( prtcl, TRIM( variable(9:LEN_TRIM(variable)-4) ) ) )  THEN
+                found_index = get_index( prtcl, TRIM( variable(9:LEN_TRIM(variable)-4) ) )
+                IF ( av == 0 )  THEN
+                   DO  i = nxl, nxr
+                      DO  j = nys, nyn
+                         DO  k = nzb, nz_do3d
+                            temp_bin = 0.0_wp
+                            DO  ic = ( found_index-1 ) * nbins_aerosol + 1, found_index * nbins_aerosol
+                               temp_bin = temp_bin + MAX( mclim, aerosol_mass_tra(ic)%conc(k,j,i) )
+                            ENDDO
+                            tend(k,j,i) = temp_bin
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                   IF ( .NOT. mask_surface(mid) )  THEN
+                      DO  i = 1, mask_size_l(mid,1)
+                         DO  j = 1, mask_size_l(mid,2)
+                            DO  k = 1, mask_size_l(mid,3)
+                               local_pf(i,j,k) = tend( mask_k(mid,k), mask_j(mid,j), mask_i(mid,i) )
+                            ENDDO
+                         ENDDO
+                      ENDDO
+                   ELSE
+                      DO  i = 1, mask_size_l(mid,1)
+                         DO  j = 1, mask_size_l(mid,2)
+!
+!--                         Get k index of the lowest non-terrain grid point.
+                            im = mask_i(mid,i)
+                            jm = mask_j(mid,j)
+                            ktt = MINLOC( MERGE( 1, 0, BTEST( topo_flags(:,jm,im), 5 ) ),          &
+                                          DIM = 1 ) - 1
+                            DO  k = 1, mask_size_l(mid,3)
+                               kk = MIN( ktt + mask_k(mid,k) - 1, nzt+1 )
+!
+!--                            Set value if not in building.
+                               IF ( .NOT. BTEST( topo_flags(kk,jm,im), 6 ) )  THEN
+                                  local_pf(i,j,k) = tend(kk,jm,im)
+                               ENDIF
+                            ENDDO
+                         ENDDO
+                      ENDDO
+                   ENDIF
+                   resorted = .TRUE.
+                ELSE
+                   IF ( .NOT. ALLOCATED( s_mass_av_tra ) )  THEN
+                      ALLOCATE( s_mass_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg,maxspec) )
+                      s_mass_av_tra = 0.0_wp
+                   ENDIF
+                   temp_array = s_mass_av_tra(:,:,:,found_index)
+                   to_be_resorted => temp_array
+                ENDIF
              ENDIF
 
           CASE DEFAULT
@@ -12670,17 +16182,15 @@
           DO  i = 1, mask_size_l(mid,1)
              DO  j = 1, mask_size_l(mid,2)
 !
-!--             Get k index of the lowest non-terrain grid point
+!--             Get k index of the lowest non-terrain grid point.
                 im = mask_i(mid,i)
                 jm = mask_j(mid,j)
                 ktt = MINLOC( MERGE( 1, 0, BTEST( topo_flags(:,jm,im), 5 )), DIM = 1 ) - 1
                 DO  k = 1, mask_size_l(mid,3)
                    kk = MIN( ktt + mask_k(mid,k) - 1, nzt+1 )
 !
-!--                Set value if not in building, else set fill value
-                   IF ( BTEST( topo_flags(kk,jm,im), 6 ) )  THEN
-                      local_pf(i,j,k) = fill_value
-                   ELSE
+!--                Set value if not in building.
+                   IF ( .NOT. BTEST( topo_flags(kk,jm,im), 6 ) )  THEN
                       local_pf(i,j,k) = to_be_resorted(kk,jm,im)
                    ENDIF
                 ENDDO
@@ -12691,11 +16201,12 @@
 
  END SUBROUTINE salsa_data_output_mask
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Creates index tables for different (aerosol) components
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE component_index_constructor( self, ncomp, nlist, listcomp )
 
     IMPLICIT NONE
@@ -12712,11 +16223,12 @@
     TYPE(component_index), INTENT(inout) ::  self  !< Object containing the indices of different
                                                    !< aerosol components
 
+
     ncomp = 0
 
     DO WHILE ( listcomp(ncomp+1) /= '  ' .AND. ncomp < nlist )
        ncomp = ncomp + 1
-       IF ( ncomp > 6 )  EXIT
+       IF ( ncomp > maxspec - 1)  EXIT
     ENDDO
 
     self%ncomp = ncomp
@@ -12735,11 +16247,12 @@
 
  END SUBROUTINE component_index_constructor
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Gives the index of a component in the component list
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  INTEGER FUNCTION get_index( self, incomp )
 
     IMPLICIT NONE
@@ -12750,6 +16263,8 @@
 
     TYPE(component_index), INTENT(in) ::  self  !< Object containing the indices of different
                                                 !< aerosol components
+
+
     IF ( ANY( self%comp == incomp ) )  THEN
        ii = 1
        DO WHILE ( (self%comp(ii) /= incomp) )
@@ -12759,17 +16274,18 @@
     ELSEIF ( incomp == 'H2O' )  THEN
        get_index = self%ncomp + 1
     ELSE
-       WRITE( message_string, * ) 'Incorrect component name given!'
-       CALL message( 'get_index', 'PA0748', 1, 2, 0, 6, 0 )
+       WRITE( message_string, * ) 'incorrect component name "', TRIM( incomp ), '" given'
+       CALL message( 'get_index', 'SAL0064', 1, 2, 0, 6, 0 )
     ENDIF
 
  END FUNCTION get_index
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Tells if the (aerosol) component is being used in the simulation
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  LOGICAL FUNCTION is_used( self, icomp )
 
     IMPLICIT NONE
@@ -12779,6 +16295,7 @@
     TYPE(component_index), INTENT(in) ::  self  !< Object containing the indices of different
                                                 !< aerosol components
 
+
     IF ( ANY(self%comp == icomp) ) THEN
        is_used = .TRUE.
     ELSE
@@ -12787,25 +16304,36 @@
 
  END FUNCTION
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Set the lateral and top boundary conditions in case the PALM domain is
 !> nested offline in a mesoscale model. Further, average boundary data and
 !> determine mean profiles, further used for correct damping in the sponge
 !> layer.
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_nesting_offl_bc
 
     USE control_parameters,                                                                        &
-        ONLY:  bc_dirichlet_l, bc_dirichlet_n, bc_dirichlet_r, bc_dirichlet_s, dt_3d,              &
+        ONLY:  bc_dirichlet_l,                                                                     &
+               bc_dirichlet_n,                                                                     &
+               bc_dirichlet_r,                                                                     &
+               bc_dirichlet_s,                                                                     &
+               dt_3d,                                                                              &
                time_since_reference_point
 
-    USE exchange_horiz_mod,                                                    &
+    USE exchange_horiz_mod,                                                                        &
         ONLY:  exchange_horiz
 
-    USE indices,                                                                                   &
-        ONLY:  nbgp, nxl, nxr, nyn, nys, nzb, nzt
+    USE indices,                                                                                   \
+        ONLY:  nbgp,                                                                               \
+               nxl,                                                                                \
+               nxr,                                                                                \
+               nyn,                                                                                \
+               nys,                                                                                \
+               nzb,                                                                                \
+               nzt
 
     IMPLICIT NONE
 
@@ -12825,6 +16353,7 @@
     REAL(wp), DIMENSION(:,:), ALLOCATABLE ::  ref_nconc_l  !< reference profile for aerosol_number: subdomain
     REAL(wp), DIMENSION(:,:), ALLOCATABLE ::  ref_gconc    !< reference profile for gases
     REAL(wp), DIMENSION(:,:), ALLOCATABLE ::  ref_gconc_l  !< reference profile for gases: subdomain
+
 
 !
 !-- Skip input if no forcing from larger-scale models is applied.
@@ -13096,6 +16625,17 @@
           aerosol_mass(icc)%init(nzb) = aerosol_mass(icc)%init(nzb+1)
        ENDDO
     ENDDO
+!
+!-- Set traffic boundary conditions to background (zero) since no traffic background in dynamic files
+    IF ( is_traffic )  THEN
+    DO  ib = 1, nbins_aerosol
+       aerosol_number_tra(ib)%init(:) = nclim
+       DO  ic = 1, ncomponents_mass
+          icc = ( ic-1 ) * nbins_aerosol + ib
+          aerosol_mass_tra(icc)%init(:) = mclim
+       ENDDO
+    ENDDO
+    ENDIF
     IF ( .NOT. salsa_gases_from_chem )  THEN
        DO  ig = 1, ngases_salsa
           salsa_gas(ig)%init(:)   = ref_gconc(:,ig)
@@ -13107,16 +16647,18 @@
 
  END SUBROUTINE salsa_nesting_offl_bc
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Allocate arrays used to read boundary data from NetCDF file and initialize
 !> boundary data.
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_nesting_offl_init
 
     USE control_parameters,                                                                        &
-        ONLY:  end_time, spinup_time
+        ONLY:  end_time,                                                                           &
+               spinup_time
 
     USE palm_date_time_mod,                                                                        &
         ONLY:  get_date_time
@@ -13129,42 +16671,72 @@
     INTEGER(iwp) ::  ig          !< running index for gaseous species
     INTEGER(iwp) ::  nmass_bins  !< number of aerosol mass bins
 
+
     nmass_bins = nbins_aerosol * ncomponents_mass
 !
 !-- Allocate arrays for reading boundary values. Arrays will incorporate 2 time levels in order to
-!-- interpolate in between.
+!-- interpolate in between. Arrays will be allocated on all subdomains, while on non-boundary
+!-- subdomains only zero-size arrays are allocated.
     IF ( nesting_offline_salsa )  THEN
        IF ( bc_dirichlet_l )  THEN
           ALLOCATE( salsa_nest_offl%nconc_left(0:1,nzb+1:nzt,nys:nyn,1:nbins_aerosol) )
           ALLOCATE( salsa_nest_offl%mconc_left(0:1,nzb+1:nzt,nys:nyn,1:nmass_bins) )
+       ELSE
+          ALLOCATE( salsa_nest_offl%nconc_left(1:1,1:1,1:1,1:1) )
+          ALLOCATE( salsa_nest_offl%mconc_left(1:1,1:1,1:1,1:1) )
        ENDIF
        IF ( bc_dirichlet_r )  THEN
           ALLOCATE( salsa_nest_offl%nconc_right(0:1,nzb+1:nzt,nys:nyn,1:nbins_aerosol) )
           ALLOCATE( salsa_nest_offl%mconc_right(0:1,nzb+1:nzt,nys:nyn,1:nmass_bins) )
+       ELSE
+          ALLOCATE( salsa_nest_offl%nconc_right(1:1,1:1,1:1,1:1) )
+          ALLOCATE( salsa_nest_offl%mconc_right(1:1,1:1,1:1,1:1) )
        ENDIF
        IF ( bc_dirichlet_n )  THEN
           ALLOCATE( salsa_nest_offl%nconc_north(0:1,nzb+1:nzt,nxl:nxr,1:nbins_aerosol) )
           ALLOCATE( salsa_nest_offl%mconc_north(0:1,nzb+1:nzt,nxl:nxr,1:nmass_bins) )
+       ELSE
+          ALLOCATE( salsa_nest_offl%nconc_north(1:1,1:1,1:1,1:1) )
+          ALLOCATE( salsa_nest_offl%mconc_north(1:1,1:1,1:1,1:1) )
        ENDIF
        IF ( bc_dirichlet_s )  THEN
           ALLOCATE( salsa_nest_offl%nconc_south(0:1,nzb+1:nzt,nxl:nxr,1:nbins_aerosol) )
           ALLOCATE( salsa_nest_offl%mconc_south(0:1,nzb+1:nzt,nxl:nxr,1:nmass_bins) )
+       ELSE
+          ALLOCATE( salsa_nest_offl%nconc_south(1:1,1:1,1:1,1:1) )
+          ALLOCATE( salsa_nest_offl%mconc_south(1:1,1:1,1:1,1:1) )
        ENDIF
        ALLOCATE( salsa_nest_offl%nconc_top(0:1,nys:nyn,nxl:nxr,1:nbins_aerosol) )
        ALLOCATE( salsa_nest_offl%mconc_top(0:1,nys:nyn,nxl:nxr,1:nmass_bins) )
+!
+!--    Initialize mass boundary arrays to mclim to prevent uninitialized garbage
+!--    in bins that nesting_offl_aero_mass does not fill (e.g. subrange 2b, bins 11-17).
+       IF ( bc_dirichlet_l )  salsa_nest_offl%mconc_left = mclim
+       IF ( bc_dirichlet_r )  salsa_nest_offl%mconc_right = mclim
+       IF ( bc_dirichlet_n )  salsa_nest_offl%mconc_north = mclim
+       IF ( bc_dirichlet_s )  salsa_nest_offl%mconc_south = mclim
+       salsa_nest_offl%mconc_top = mclim
 
        IF ( .NOT. salsa_gases_from_chem )  THEN
           IF ( bc_dirichlet_l )  THEN
              ALLOCATE( salsa_nest_offl%gconc_left(0:1,nzb+1:nzt,nys:nyn,1:ngases_salsa) )
+          ELSE
+             ALLOCATE( salsa_nest_offl%gconc_left(1:1,1:1,1:1,1:1) )
           ENDIF
           IF ( bc_dirichlet_r )  THEN
              ALLOCATE( salsa_nest_offl%gconc_right(0:1,nzb+1:nzt,nys:nyn,1:ngases_salsa) )
+          ELSE
+             ALLOCATE( salsa_nest_offl%gconc_right(1:1,1:1,1:1,1:1) )
           ENDIF
           IF ( bc_dirichlet_n )  THEN
              ALLOCATE( salsa_nest_offl%gconc_north(0:1,nzb+1:nzt,nxl:nxr,1:ngases_salsa) )
+          ELSE
+             ALLOCATE( salsa_nest_offl%gconc_north(1:1,1:1,1:1,1:1) )
           ENDIF
           IF ( bc_dirichlet_s )  THEN
              ALLOCATE( salsa_nest_offl%gconc_south(0:1,nzb+1:nzt,nxl:nxr,1:ngases_salsa) )
+          ELSE
+             ALLOCATE( salsa_nest_offl%gconc_south(1:1,1:1,1:1,1:1) )
           ENDIF
           ALLOCATE( salsa_nest_offl%gconc_top(0:1,nys:nyn,nxl:nxr,1:ngases_salsa) )
        ENDIF
@@ -13178,13 +16750,13 @@
 !--    spinup time is added to the end_time, this must be considered here.
        IF ( end_time - spinup_time > salsa_nest_offl%time(salsa_nest_offl%nt-1) )  THEN
           message_string = 'end_time of the simulation exceeds the time dimension in the dynamic'//&
-                           ' input file.'
-          CALL message( 'salsa_nesting_offl_init', 'PA0690', 1, 2, 0, 6, 0 )
+                           ' input file'
+          CALL message( 'salsa_nesting_offl_init', 'SAL0065', 1, 2, 0, 6, 0 )
        ENDIF
 
        IF ( salsa_nest_offl%time(0) /= 0.0_wp )  THEN
-          message_string = 'Offline nesting: time dimension must start at 0.0.'
-          CALL message( 'salsa_nesting_offl_init', 'PA0691', 1, 2, 0, 6, 0 )
+          message_string = 'offline nesting: time dimension must start at 0.0'
+          CALL message( 'salsa_nesting_offl_init', 'SAL0066', 1, 2, 0, 6, 0 )
        ENDIF
 !
 !--    Initialize boundary data. Please note, do not initialize boundaries in case of restart runs.
@@ -13199,10 +16771,31 @@
                                                  salsa_nest_offl%mconc_left(0,nzb+1:nzt,nys:nyn,icc)
                 ENDDO
              ENDDO
-             DO  ig = 1, ngases_salsa
-                salsa_gas(ig)%conc(nzb+1:nzt,nys:nyn,-1) =                                         &
-                                                 salsa_nest_offl%gconc_left(0,nzb+1:nzt,nys:nyn,ig)
+!
+!--          Protect against NaN fill values from the dynamic file
+             DO  ib = 1, nbins_aerosol
+                WHERE ( aerosol_number(ib)%conc(nzb+1:nzt,nys:nyn,-1) /=                           &
+                        aerosol_number(ib)%conc(nzb+1:nzt,nys:nyn,-1) )
+                   aerosol_number(ib)%conc(nzb+1:nzt,nys:nyn,-1) = nclim
+                END WHERE
+                aerosol_number(ib)%conc(nzb+1:nzt,nys:nyn,-1) =                                    &
+                                MAX( nclim, aerosol_number(ib)%conc(nzb+1:nzt,nys:nyn,-1) )
              ENDDO
+             DO  icc = 1, nbins_aerosol * ncomponents_mass
+                WHERE ( aerosol_mass(icc)%conc(nzb+1:nzt,nys:nyn,-1) /=                            &
+                        aerosol_mass(icc)%conc(nzb+1:nzt,nys:nyn,-1) )
+                   aerosol_mass(icc)%conc(nzb+1:nzt,nys:nyn,-1) = mclim
+                END WHERE
+                aerosol_mass(icc)%conc(nzb+1:nzt,nys:nyn,-1) =                                     &
+                                MAX( mclim, aerosol_mass(icc)%conc(nzb+1:nzt,nys:nyn,-1) )
+             ENDDO
+
+             IF ( .NOT. salsa_gases_from_chem )  THEN
+                DO  ig = 1, ngases_salsa
+                   salsa_gas(ig)%conc(nzb+1:nzt,nys:nyn,-1) =                                      &
+                                                 salsa_nest_offl%gconc_left(0,nzb+1:nzt,nys:nyn,ig)
+                ENDDO
+             ENDIF
           ENDIF
           IF ( bc_dirichlet_r )  THEN
              DO  ib = 1, nbins_aerosol
@@ -13214,10 +16807,28 @@
                                                 salsa_nest_offl%mconc_right(0,nzb+1:nzt,nys:nyn,icc)
                 ENDDO
              ENDDO
-             DO  ig = 1, ngases_salsa
-                salsa_gas(ig)%conc(nzb+1:nzt,nys:nyn,nxr+1) =                                      &
-                                                 salsa_nest_offl%gconc_right(0,nzb+1:nzt,nys:nyn,ig)
+             DO  ib = 1, nbins_aerosol
+                WHERE ( aerosol_number(ib)%conc(nzb+1:nzt,nys:nyn,nxr+1) /=                        &
+                        aerosol_number(ib)%conc(nzb+1:nzt,nys:nyn,nxr+1) )
+                   aerosol_number(ib)%conc(nzb+1:nzt,nys:nyn,nxr+1) = nclim
+                END WHERE
+                aerosol_number(ib)%conc(nzb+1:nzt,nys:nyn,nxr+1) =                                 &
+                                MAX( nclim, aerosol_number(ib)%conc(nzb+1:nzt,nys:nyn,nxr+1) )
              ENDDO
+             DO  icc = 1, nbins_aerosol * ncomponents_mass
+                WHERE ( aerosol_mass(icc)%conc(nzb+1:nzt,nys:nyn,nxr+1) /=                         &
+                        aerosol_mass(icc)%conc(nzb+1:nzt,nys:nyn,nxr+1) )
+                   aerosol_mass(icc)%conc(nzb+1:nzt,nys:nyn,nxr+1) = mclim
+                END WHERE
+                aerosol_mass(icc)%conc(nzb+1:nzt,nys:nyn,nxr+1) =                                  &
+                                MAX( mclim, aerosol_mass(icc)%conc(nzb+1:nzt,nys:nyn,nxr+1) )
+             ENDDO
+             IF ( .NOT. salsa_gases_from_chem )  THEN
+                DO  ig = 1, ngases_salsa
+                   salsa_gas(ig)%conc(nzb+1:nzt,nys:nyn,nxr+1) =                                   &
+                                                 salsa_nest_offl%gconc_right(0,nzb+1:nzt,nys:nyn,ig)
+                ENDDO
+             ENDIF
           ENDIF
           IF ( bc_dirichlet_n )  THEN
              DO  ib = 1, nbins_aerosol
@@ -13229,10 +16840,28 @@
                                                 salsa_nest_offl%mconc_north(0,nzb+1:nzt,nxl:nxr,icc)
                 ENDDO
              ENDDO
-             DO  ig = 1, ngases_salsa
-                salsa_gas(ig)%conc(nzb+1:nzt,nyn+1,nxl:nxr) =                                      &
-                                                 salsa_nest_offl%gconc_north(0,nzb+1:nzt,nxl:nxr,ig)
+             DO  ib = 1, nbins_aerosol
+                WHERE ( aerosol_number(ib)%conc(nzb+1:nzt,nyn+1,nxl:nxr) /=                        &
+                        aerosol_number(ib)%conc(nzb+1:nzt,nyn+1,nxl:nxr) )
+                   aerosol_number(ib)%conc(nzb+1:nzt,nyn+1,nxl:nxr) = nclim
+                END WHERE
+                aerosol_number(ib)%conc(nzb+1:nzt,nyn+1,nxl:nxr) =                                 &
+                                MAX( nclim, aerosol_number(ib)%conc(nzb+1:nzt,nyn+1,nxl:nxr) )
              ENDDO
+             DO  icc = 1, nbins_aerosol * ncomponents_mass
+                WHERE ( aerosol_mass(icc)%conc(nzb+1:nzt,nyn+1,nxl:nxr) /=                          &
+                        aerosol_mass(icc)%conc(nzb+1:nzt,nyn+1,nxl:nxr) )
+                   aerosol_mass(icc)%conc(nzb+1:nzt,nyn+1,nxl:nxr) = mclim
+                END WHERE
+                aerosol_mass(icc)%conc(nzb+1:nzt,nyn+1,nxl:nxr) =                                   &
+                                MAX( mclim, aerosol_mass(icc)%conc(nzb+1:nzt,nyn+1,nxl:nxr) )
+             ENDDO
+             IF ( .NOT. salsa_gases_from_chem )  THEN
+                DO  ig = 1, ngases_salsa
+                   salsa_gas(ig)%conc(nzb+1:nzt,nyn+1,nxl:nxr) =                                   &
+                                                 salsa_nest_offl%gconc_north(0,nzb+1:nzt,nxl:nxr,ig)
+                ENDDO
+             ENDIF
           ENDIF
           IF ( bc_dirichlet_s )  THEN
              DO  ib = 1, nbins_aerosol
@@ -13244,30 +16873,56 @@
                                                 salsa_nest_offl%mconc_south(0,nzb+1:nzt,nxl:nxr,icc)
                 ENDDO
              ENDDO
-             DO  ig = 1, ngases_salsa
-                salsa_gas(ig)%conc(nzb+1:nzt,-1,nxl:nxr) =                                         &
-                                                 salsa_nest_offl%gconc_south(0,nzb+1:nzt,nxl:nxr,ig)
+!
+!--          Protect against NaN fill values
+             DO  ib = 1, nbins_aerosol
+                WHERE ( aerosol_number(ib)%conc(nzb+1:nzt,-1,nxl:nxr) /=                            &
+                        aerosol_number(ib)%conc(nzb+1:nzt,-1,nxl:nxr) )
+                   aerosol_number(ib)%conc(nzb+1:nzt,-1,nxl:nxr) = nclim
+                END WHERE
+                aerosol_number(ib)%conc(nzb+1:nzt,-1,nxl:nxr) =                                    &
+                                MAX( nclim, aerosol_number(ib)%conc(nzb+1:nzt,-1,nxl:nxr) )
              ENDDO
+             DO  icc = 1, nbins_aerosol * ncomponents_mass
+                WHERE ( aerosol_mass(icc)%conc(nzb+1:nzt,-1,nxl:nxr) /=                             &
+                        aerosol_mass(icc)%conc(nzb+1:nzt,-1,nxl:nxr) )
+                   aerosol_mass(icc)%conc(nzb+1:nzt,-1,nxl:nxr) = mclim
+                END WHERE
+                aerosol_mass(icc)%conc(nzb+1:nzt,-1,nxl:nxr) =                                     &
+                                MAX( mclim, aerosol_mass(icc)%conc(nzb+1:nzt,-1,nxl:nxr) )
+             ENDDO
+             IF ( .NOT. salsa_gases_from_chem )  THEN
+                DO  ig = 1, ngases_salsa
+                   salsa_gas(ig)%conc(nzb+1:nzt,-1,nxl:nxr) =                                      &
+                                                 salsa_nest_offl%gconc_south(0,nzb+1:nzt,nxl:nxr,ig)
+                ENDDO
+             ENDIF
           ENDIF
        ENDIF
     ENDIF
 
  END SUBROUTINE salsa_nesting_offl_init
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Set the lateral and top boundary conditions in case the PALM domain is
 !> nested offline in a mesoscale model. Further, average boundary data and
 !> determine mean profiles, further used for correct damping in the sponge
 !> layer.
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE salsa_nesting_offl_input
 
     USE netcdf_data_input_mod,                                                                     &
-        ONLY:  check_existence, close_input_file, get_attribute, get_variable,                     &
-               inquire_num_variables, inquire_variable_names,                                      &
-               get_dimension_length, open_read_file
+        ONLY:  check_existence,                                                                    &
+               close_input_file,                                                                   &
+               get_attribute,                                                                      &
+               get_dimension_length,                                                               &
+               get_variable,                                                                       &
+               inquire_num_variables,                                                              &
+               inquire_variable_names,                                                             \
+               open_read_file
 
     IMPLICIT NONE
 
@@ -13276,6 +16931,7 @@
     INTEGER(iwp) ::  ic        !< running index for aerosol chemical components
     INTEGER(iwp) ::  ig        !< running index for gases
     INTEGER(iwp) ::  num_vars  !< number of variables in netcdf input file
+
 
 !
 !-- Skip input if no forcing from larger-scale models is applied.
@@ -13336,12 +16992,23 @@
                 salsa_nest_offl%cc_in2mod(6) = ic
              CASE ( 'NH3', 'nh3', 'NH4', 'nh4', 'NH', 'nh' )
                 salsa_nest_offl%cc_in2mod(7) = ic
+! MODIFICATION: Added case statements for new trace metal species in offline nesting
+             CASE ( 'PB', 'pb', 'Pb', 'lead', 'Lead' )
+                salsa_nest_offl%cc_in2mod(8) = ic
+             CASE ( 'HG', 'hg', 'Hg', 'mercury', 'Mercury' )
+                salsa_nest_offl%cc_in2mod(9) = ic
+             CASE ( 'NI', 'ni', 'Ni', 'nickel', 'Nickel' )
+                salsa_nest_offl%cc_in2mod(10) = ic
+             CASE ( 'CD', 'cd', 'Cd', 'cadmium', 'Cadmium' )
+                salsa_nest_offl%cc_in2mod(11) = ic
+             CASE ( 'AS', 'as', 'As', 'arsenic', 'Arsenic' )
+                salsa_nest_offl%cc_in2mod(12) = ic
           END SELECT
        ENDDO
        IF ( SUM( salsa_nest_offl%cc_in2mod ) == 0 )  THEN
-          message_string = 'None of the aerosol chemical components in ' //                        &
-                           TRIM( input_file_dynamic ) // ' correspond to ones applied in SALSA.'
-          CALL message( 'salsa_mod: salsa_nesting_offl_input', 'PA0693', 2, 2, 0, 6, 0 )
+          message_string = 'none of the aerosol chemical components in ' //                        &
+                           TRIM( input_file_dynamic ) // ' correspond to ones applied in SALSA'
+          CALL message( 'salsa_mod: salsa_nesting_offl_input', 'SAL0067', 2, 2, 0, 6, 0 )
        ENDIF
 
        CALL close_input_file( salsa_nest_offl%id_dynamic )
@@ -13350,7 +17017,7 @@
 !
 !-- Check if dynamic driver data input is required.
     IF ( salsa_nest_offl%time(salsa_nest_offl%tind_p) <= MAX( time_since_reference_point, 0.0_wp)  &
-         .OR.  .NOT.  salsa_nest_offl%init )  THEN
+         .OR.  .NOT. salsa_nest_offl%init )  THEN
        CONTINUE
 !
 !-- Return otherwise
@@ -13376,128 +17043,179 @@
     CALL open_read_file( TRIM( input_file_dynamic ) // TRIM( coupling_char ),                      &
                          salsa_nest_offl%id_dynamic )
 !
-!-- Read data at the western boundary
+!-- Read data at the western boundary.
     CALL get_variable( salsa_nest_offl%id_dynamic, 'ls_forcing_left_aerosol',                      &
                        salsa_nest_offl%nconc_left,                                                 &
-                       MERGE( 0, 1, bc_dirichlet_l ), MERGE( nbins_aerosol-1, 0, bc_dirichlet_l ), &
-                       MERGE( nys, 1, bc_dirichlet_l ), MERGE( nyn, 0, bc_dirichlet_l ),           &
-                       MERGE( nzb, 1, bc_dirichlet_l ), MERGE( nzt-1, 0, bc_dirichlet_l ),         &
-                       MERGE( salsa_nest_offl%tind,   1, bc_dirichlet_l ),                         &
-                       MERGE( salsa_nest_offl%tind_p, 0, bc_dirichlet_l  ) )
-    IF ( bc_dirichlet_l )  THEN
-       salsa_nest_offl%nconc_left = MAX( nclim, salsa_nest_offl%nconc_left )
-       CALL nesting_offl_aero_mass( salsa_nest_offl%tind, salsa_nest_offl%tind_p, nzb+1, nzt, nys, &
-                                    nyn, 'ls_forcing_left_mass_fracs_a', 1 )
-    ENDIF
+                       1,                                                                          &
+                       MERGE( nys+1, 1, bc_dirichlet_l),                                           &
+                       MERGE( nzb+1, 1, bc_dirichlet_l ),                                          \
+                       MERGE( salsa_nest_offl%tind+1, 1, bc_dirichlet_l ),                         &
+                       MERGE( nbins_aerosol, 0, bc_dirichlet_l ),                                  &
+                       MERGE( nyn-nys+1, 0, bc_dirichlet_l),                                       &
+                       MERGE( salsa_nest_offl%nzu, 0, bc_dirichlet_l),                             &
+                       MERGE( 2, 0, bc_dirichlet_l),                                               &
+                       .TRUE. )
+
+    IF( bc_dirichlet_l )  salsa_nest_offl%nconc_left = MAX( nclim, salsa_nest_offl%nconc_left )
+!
+!-- Read mass fractions and process them accordingly.
+    CALL nesting_offl_aero_mass( salsa_nest_offl%tind, salsa_nest_offl%tind_p, nzb+1, nzt, nys,    &
+                                 nyn, 'ls_forcing_left_mass_fracs_a', 1 )
     IF ( .NOT. salsa_gases_from_chem )  THEN
        DO  ig = 1, ngases_salsa
           vname = salsa_nest_offl%char_l // salsa_nest_offl%gas_name(ig)
           CALL get_variable( salsa_nest_offl%id_dynamic, TRIM( vname ),                            &
                              salsa_nest_offl%gconc_left(:,:,:,ig),                                 &
-                             MERGE( nys, 1, bc_dirichlet_l ), MERGE( nyn, 0, bc_dirichlet_l ),     &
-                             MERGE( nzb, 1, bc_dirichlet_l ), MERGE( nzt-1, 0, bc_dirichlet_l ),   &
-                             MERGE( salsa_nest_offl%tind,   1, bc_dirichlet_l ),                   &
-                             MERGE( salsa_nest_offl%tind_p, 0, bc_dirichlet_l ) )
+                             MERGE( nys+1, 1, bc_dirichlet_l),                                     &
+                             MERGE( nzb+1, 1, bc_dirichlet_l),                                     &
+                             MERGE( salsa_nest_offl%tind+1, 1, bc_dirichlet_l),                    &
+                             MERGE( nyn-nys+1, 0, bc_dirichlet_l),                                 &
+                             MERGE( salsa_nest_offl%nzu, 0, bc_dirichlet_l),                       &
+                             MERGE( 2, 0, bc_dirichlet_l),                                         &
+                             .TRUE. )
+
           IF ( bc_dirichlet_l )  salsa_nest_offl%gconc_left(:,:,:,ig) =                            &
                                                   MAX( nclim, salsa_nest_offl%gconc_left(:,:,:,ig) )
        ENDDO
     ENDIF
 !
-!-- Read data at the eastern boundary
+!-- Read data at the eastern boundary.
     CALL get_variable( salsa_nest_offl%id_dynamic, 'ls_forcing_right_aerosol',                     &
                        salsa_nest_offl%nconc_right,                                                &
-                       MERGE( 0, 1, bc_dirichlet_r ), MERGE( nbins_aerosol-1, 0, bc_dirichlet_r ), &
-                       MERGE( nys, 1, bc_dirichlet_r ), MERGE( nyn, 0, bc_dirichlet_r ),           &
-                       MERGE( nzb, 1, bc_dirichlet_r ), MERGE( nzt-1, 0, bc_dirichlet_r ),         &
-                       MERGE( salsa_nest_offl%tind,   1, bc_dirichlet_r ),                         &
-                       MERGE( salsa_nest_offl%tind_p, 0, bc_dirichlet_r ) )
-    IF ( bc_dirichlet_r )  THEN
-       salsa_nest_offl%nconc_right = MAX( nclim, salsa_nest_offl%nconc_right )
-       CALL nesting_offl_aero_mass( salsa_nest_offl%tind, salsa_nest_offl%tind_p, nzb+1, nzt, nys, &
-                                    nyn, 'ls_forcing_right_mass_fracs_a', 2 )
-    ENDIF
+                       1,                                                                          &
+                       MERGE( nys+1, 1, bc_dirichlet_r),                                           &
+                       MERGE( nzb+1, 1, bc_dirichlet_r ),                                          &
+                       MERGE( salsa_nest_offl%tind+1, 1, bc_dirichlet_r ),                         &
+                       MERGE( nbins_aerosol, 0, bc_dirichlet_r ),                                  &
+                       MERGE( nyn-nys+1, 0, bc_dirichlet_r),                                       &
+                       MERGE( salsa_nest_offl%nzu, 0, bc_dirichlet_r),                             &
+                       MERGE( 2, 0, bc_dirichlet_r),                                               &
+                       .TRUE. )
+
+    IF( bc_dirichlet_r )  salsa_nest_offl%nconc_right = MAX( nclim, salsa_nest_offl%nconc_right )
+!
+!-- Read mass fractions and process them accordingly.
+    CALL nesting_offl_aero_mass( salsa_nest_offl%tind, salsa_nest_offl%tind_p, nzb+1, nzt, nys,    &
+                                 nyn, 'ls_forcing_right_mass_fracs_a', 2 )
     IF ( .NOT. salsa_gases_from_chem )  THEN
        DO  ig = 1, ngases_salsa
           vname = salsa_nest_offl%char_r // salsa_nest_offl%gas_name(ig)
           CALL get_variable( salsa_nest_offl%id_dynamic, TRIM( vname ),                            &
                              salsa_nest_offl%gconc_right(:,:,:,ig),                                &
-                             MERGE( nys, 1, bc_dirichlet_r ), MERGE( nyn, 0, bc_dirichlet_r ),     &
-                             MERGE( nzb, 1, bc_dirichlet_r ), MERGE( nzt-1, 0, bc_dirichlet_r ),   &
-                             MERGE( salsa_nest_offl%tind,   1, bc_dirichlet_r ),                   &
-                             MERGE( salsa_nest_offl%tind_p, 0, bc_dirichlet_r ) )
+                             MERGE( nys+1, 1, bc_dirichlet_r),                                     &
+                             MERGE( nzb+1, 1, bc_dirichlet_r),                                     &
+                             MERGE( salsa_nest_offl%tind+1, 1, bc_dirichlet_r),                    &
+                             MERGE( nyn-nys+1, 0, bc_dirichlet_r),                                 &
+                             MERGE( salsa_nest_offl%nzu, 0, bc_dirichlet_r),                       &
+                             MERGE( 2, 0, bc_dirichlet_r),                                         &
+                             .TRUE. )
+
           IF ( bc_dirichlet_r )  salsa_nest_offl%gconc_right(:,:,:,ig) =                           &
                                                  MAX( nclim, salsa_nest_offl%gconc_right(:,:,:,ig) )
        ENDDO
     ENDIF
 !
-!-- Read data at the northern boundary
+!-- Read data at the northern boundary.
     CALL get_variable( salsa_nest_offl%id_dynamic, 'ls_forcing_north_aerosol',                     &
                        salsa_nest_offl%nconc_north,                                                &
-                       MERGE( 0, 1, bc_dirichlet_n ), MERGE( nbins_aerosol-1, 0, bc_dirichlet_n ), &
-                       MERGE( nxl, 1, bc_dirichlet_n ), MERGE( nxr, 0, bc_dirichlet_n ),           &
-                       MERGE( nzb, 1, bc_dirichlet_n ), MERGE( nzt-1, 0, bc_dirichlet_n ),         &
-                       MERGE( salsa_nest_offl%tind,   1, bc_dirichlet_n ),                         &
-                       MERGE( salsa_nest_offl%tind_p, 0, bc_dirichlet_n ) )
-    IF ( bc_dirichlet_n )  THEN
-       salsa_nest_offl%nconc_north = MAX( nclim, salsa_nest_offl%nconc_north )
-       CALL nesting_offl_aero_mass( salsa_nest_offl%tind, salsa_nest_offl%tind_p, nzb+1, nzt, nxl, &
-                                    nxr, 'ls_forcing_north_mass_fracs_a', 3 )
-    ENDIF
+                       1,                                                                          &
+                       MERGE( nxl+1, 1, bc_dirichlet_n),                                           &
+                       MERGE( nzb+1, 1, bc_dirichlet_n ),                                          &
+                       MERGE( salsa_nest_offl%tind+1, 1, bc_dirichlet_n ),                         &
+                       MERGE( nbins_aerosol, 0, bc_dirichlet_n ),                                  &
+                       MERGE( nxr-nxl+1, 0, bc_dirichlet_n),                                       &
+                       MERGE( salsa_nest_offl%nzu, 0, bc_dirichlet_n),                             &
+                       MERGE( 2, 0, bc_dirichlet_n),                                               &
+                       .TRUE. )
+
+    IF( bc_dirichlet_n )  salsa_nest_offl%nconc_north = MAX( nclim, salsa_nest_offl%nconc_north )
+!
+!-- Read mass fractions and process them accordingly.
+    CALL nesting_offl_aero_mass( salsa_nest_offl%tind, salsa_nest_offl%tind_p, nzb+1, nzt, nxl,    &
+                                 nxr, 'ls_forcing_north_mass_fracs_a', 3 )
+
     IF ( .NOT. salsa_gases_from_chem )  THEN
        DO  ig = 1, ngases_salsa
           vname = salsa_nest_offl%char_n // salsa_nest_offl%gas_name(ig)
           CALL get_variable( salsa_nest_offl%id_dynamic, TRIM( vname ),                            &
                              salsa_nest_offl%gconc_north(:,:,:,ig),                                &
-                             MERGE( nxl, 1, bc_dirichlet_n ), MERGE( nxr, 0, bc_dirichlet_n ),     &
-                             MERGE( nzb, 1, bc_dirichlet_n ), MERGE( nzt-1, 0, bc_dirichlet_n ),   &
-                             MERGE( salsa_nest_offl%tind,   1, bc_dirichlet_n ),                   &
-                             MERGE( salsa_nest_offl%tind_p, 0, bc_dirichlet_n ) )
+                             MERGE( nxl+1, 1, bc_dirichlet_n),                                     &
+                             MERGE( nzb+1, 1, bc_dirichlet_n),                                     &
+                             MERGE( salsa_nest_offl%tind+1, 1, bc_dirichlet_n),                    &
+                             MERGE( nxr-nxl+1, 0, bc_dirichlet_n),                                 &
+                             MERGE( salsa_nest_offl%nzu, 0, bc_dirichlet_n),                       &
+                             MERGE( 2, 0, bc_dirichlet_n),                                         &
+                             .TRUE. )
+
           IF ( bc_dirichlet_n )  salsa_nest_offl%gconc_north(:,:,:,ig) =                           &
                                                  MAX( nclim, salsa_nest_offl%gconc_north(:,:,:,ig) )
        ENDDO
     ENDIF
 !
-!-- Read data at the southern boundary
+!-- Read data at the southern boundary.
     CALL get_variable( salsa_nest_offl%id_dynamic, 'ls_forcing_south_aerosol',                     &
                        salsa_nest_offl%nconc_south,                                                &
-                       MERGE( 0, 1, bc_dirichlet_s ), MERGE( nbins_aerosol-1, 0, bc_dirichlet_s ), &
-                       MERGE( nxl, 1, bc_dirichlet_s ), MERGE( nxr, 0, bc_dirichlet_s ),           &
-                       MERGE( nzb, 1, bc_dirichlet_s ), MERGE( nzt-1, 0, bc_dirichlet_s ),         &
-                       MERGE( salsa_nest_offl%tind,   1, bc_dirichlet_s ),                         &
-                       MERGE( salsa_nest_offl%tind_p, 0, bc_dirichlet_s ) )
-    IF ( bc_dirichlet_s )  THEN
-       salsa_nest_offl%nconc_south = MAX( nclim, salsa_nest_offl%nconc_south )
-       CALL nesting_offl_aero_mass( salsa_nest_offl%tind, salsa_nest_offl%tind_p, nzb+1, nzt, nxl, &
-                                    nxr, 'ls_forcing_south_mass_fracs_a', 4 )
-    ENDIF
+                       1,                                                                          &
+                       MERGE( nxl+1, 1, bc_dirichlet_s),                                           &
+                       MERGE( nzb+1, 1, bc_dirichlet_s ),                                          &
+                       MERGE( salsa_nest_offl%tind+1, 1, bc_dirichlet_s ),                         &
+                       MERGE( nbins_aerosol, 0, bc_dirichlet_s ),                                  &
+                       MERGE( nxr-nxl+1, 0, bc_dirichlet_s),                                       &
+                       MERGE( salsa_nest_offl%nzu, 0, bc_dirichlet_s),                             &
+                       MERGE( 2, 0, bc_dirichlet_s),                                               &
+                       .TRUE. )
+
+    IF( bc_dirichlet_s )  salsa_nest_offl%nconc_south = MAX( nclim, salsa_nest_offl%nconc_south )
+!
+!-- Read mass fractions and process them accordingly.
+    CALL nesting_offl_aero_mass( salsa_nest_offl%tind, salsa_nest_offl%tind_p, nzb+1, nzt, nxl,    &
+                                 nxr, 'ls_forcing_south_mass_fracs_a', 4 )
+
     IF ( .NOT. salsa_gases_from_chem )  THEN
        DO  ig = 1, ngases_salsa
           vname = salsa_nest_offl%char_s // salsa_nest_offl%gas_name(ig)
           CALL get_variable( salsa_nest_offl%id_dynamic, TRIM( vname ),                            &
                              salsa_nest_offl%gconc_south(:,:,:,ig),                                &
-                             MERGE( nxl, 1, bc_dirichlet_s ), MERGE( nxr, 0, bc_dirichlet_s ),     &
-                             MERGE( nzb, 1, bc_dirichlet_s ), MERGE( nzt-1, 0, bc_dirichlet_s ),   &
-                             MERGE( salsa_nest_offl%tind,   1, bc_dirichlet_s ),                   &
-                             MERGE( salsa_nest_offl%tind_p, 0, bc_dirichlet_s ) )
+                             MERGE( nxl+1, 1, bc_dirichlet_s),                                     &
+                             MERGE( nzb+1, 1, bc_dirichlet_s),                                     &
+                             MERGE( salsa_nest_offl%tind+1, 1, bc_dirichlet_s),                    &
+                             MERGE( nxr-nxl+1, 0, bc_dirichlet_s),                                 &
+                             MERGE( salsa_nest_offl%nzu, 0, bc_dirichlet_s),                       &
+                             MERGE( 2, 0, bc_dirichlet_s),                                         &
+                             .TRUE. )
+
           IF ( bc_dirichlet_s )  salsa_nest_offl%gconc_south(:,:,:,ig) =                           &
                                                  MAX( nclim, salsa_nest_offl%gconc_south(:,:,:,ig) )
        ENDDO
     ENDIF
 !
-!-- Read data at the top boundary
+!-- Read data at the top boundary.
     CALL get_variable( salsa_nest_offl%id_dynamic, 'ls_forcing_top_aerosol',                       &
-                       salsa_nest_offl%nconc_top(0:1,nys:nyn,nxl:nxr,1:nbins_aerosol),             &
-                       0, nbins_aerosol-1, nxl, nxr, nys, nyn, salsa_nest_offl%tind,               &
-                       salsa_nest_offl%tind_p )
+                       salsa_nest_offl%nconc_top,                                                  &
+                       1,                                                                          &
+                       nys+1,                                                                      &
+                       nxl+1,                                                                      &
+                       salsa_nest_offl%tind+1,                                                     &
+                       nbins_aerosol,                                                              &
+                       nyn-nys+1,                                                                  &
+                       nxr-nxl+1,                                                                  &
+                       2,                                                                          &
+                       .TRUE. )
+
     salsa_nest_offl%nconc_top = MAX( nclim, salsa_nest_offl%nconc_top )
+!
+!-- Read mass fractions and process them accordingly.
     CALL nesting_offl_aero_mass( salsa_nest_offl%tind, salsa_nest_offl%tind_p, nys, nyn, nxl, nxr, &
                                  'ls_forcing_top_mass_fracs_a', 5 )
+
     IF ( .NOT. salsa_gases_from_chem )  THEN
        DO  ig = 1, ngases_salsa
           vname = salsa_nest_offl%char_t // salsa_nest_offl%gas_name(ig)
           CALL get_variable( salsa_nest_offl%id_dynamic, TRIM( vname ),                            &
-                             salsa_nest_offl%gconc_top(:,:,:,ig), nxl, nxr, nys, nyn,              &
-                             salsa_nest_offl%tind, salsa_nest_offl%tind_p )
+                             salsa_nest_offl%gconc_top(:,:,:,ig),                                  &
+                             nxl+1, nys+1, salsa_nest_offl%tind+1,                                 &
+                             nxr-nxl+1, nyn-nys+1, 2, .TRUE. )
+
           salsa_nest_offl%gconc_top(:,:,:,ig) = MAX( nclim, salsa_nest_offl%gconc_top(:,:,:,ig) )
        ENDDO
     ENDIF
@@ -13512,11 +17230,12 @@
 
  END SUBROUTINE salsa_nesting_offl_input
 
-!------------------------------------------------------------------------------!
+
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Sets the mass concentrations to aerosol arrays in 2a and 2b.
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
  SUBROUTINE nesting_offl_aero_mass( ts, te, ks, ke, is, ie, varname_a, ibound )
 
     USE netcdf_data_input_mod,                                                                     &
@@ -13547,7 +17266,12 @@
 
     INTEGER(iwp), DIMENSION(maxspec) ::  cc_i2m   !<
 
-    REAL(wp) ::  pmf1a !< mass fraction in 1a
+    LOGICAL ::  boundary_lr        !< flag indicating left/right domain boundary subdomain
+    LOGICAL ::  boundary_ns        !< flag indicating north/south domain boundary subdomain
+    LOGICAL ::  proceed_processing !< flag indicating that further processing of the data is required
+
+    REAL(wp) ::  eps = 1E-20_wp    !< security constant to avoid divisions by zero
+    REAL(wp) ::  pmf1a             !< mass fraction in 1a
 
     REAL(wp), DIMENSION(nbins_aerosol) ::  core   !< size of the bin mid aerosol particle
 
@@ -13557,6 +17281,7 @@
     REAL(wp), DIMENSION(:,:,:,:), ALLOCATABLE ::  mf2a !< Mass distributions for a
     REAL(wp), DIMENSION(:,:,:,:), ALLOCATABLE ::  mf2b !< and b bins
 
+
 !
 !-- Variable name for insoluble mass fraction
     varname_b = varname_a(1:LEN( TRIM( varname_a ) ) - 1 ) // 'b'
@@ -13565,19 +17290,55 @@
     core(1:nbins_aerosol) = api6 * aero(1:nbins_aerosol)%dmid**3
 !
 !-- Allocate and read mass fraction arrays
-    ALLOCATE( mf2a(0:1,ks:ke,is:ie,1:salsa_nest_offl%ncc),                                         &
+   ! ALLOCATE( mf2a(0:1,ks:ke,is:ie,1:nbins_aerosol),                                               &
+   !           mf2b(0:1,ks:ke,is:ie,1:nbins_aerosol*ncomponents_mass) )
+    ALLOCATE( mf2a(0:1,ks:ke,is:ie,1:salsa_nest_offl%ncc),                                          &
               mf2b(0:1,ks:ke,is:ie,1:salsa_nest_offl%ncc) )
+
+!
+!-- Read top boundary data.
     IF ( ibound == 5 )  THEN
-       CALL get_variable( salsa_nest_offl%id_dynamic, varname_a,                                   &
-                          mf2a(0:1,ks:ke,is:ie,1:salsa_nest_offl%ncc), 0, salsa_nest_offl%ncc-1,   &
-                          is, ie, ks, ke, ts, te )
-    ELSE
-       CALL get_variable( salsa_nest_offl%id_dynamic, varname_a,                                   &
-                          mf2a(0:1,ks:ke,is:ie,1:salsa_nest_offl%ncc), 0, salsa_nest_offl%ncc-1,   &
-                          is, ie, ks-1, ke-1, ts, te )
+       CALL get_variable( salsa_nest_offl%id_dynamic, varname_a, mf2a,                             &
+                          1,                                                                       &
+                          nys+1,                                                                   \
+                          nxl+1,                                                                   \
+                          salsa_nest_offl%tind+1,                                                  \
+                          salsa_nest_offl%ncc,                                                     \
+                          nyn-nys+1,                                                               \
+                          nxr-nxl+1,                                                               \
+                          2,                                                                       \
+                          .TRUE. )
+!
+!-- Read east/west boundary data.
+    ELSEIF ( ibound == 1  .OR.  ibound == 2 )  THEN
+       boundary_lr = ( bc_dirichlet_l  .OR.  bc_dirichlet_r )
+       CALL get_variable( salsa_nest_offl%id_dynamic, varname_a, mf2a,                             &
+                          1,                                                                       &
+                          MERGE( nys+1, 1, boundary_lr),                                           &
+                          MERGE( nzb+1, 1, boundary_lr ),                                          &
+                          MERGE( salsa_nest_offl%tind+1, 1, boundary_lr ),                         &
+                          MERGE( salsa_nest_offl%ncc, 0, boundary_lr ),                            &
+                          MERGE( nyn-nys+1, 0, boundary_lr),                                       &
+                          MERGE( salsa_nest_offl%nzu, 0, boundary_lr),                             &
+                          MERGE( 2, 0, boundary_lr),                                               &
+                          .TRUE. )
+!
+!-- Read east/west boundary data.
+    ELSEIF ( ibound == 3  .OR.  ibound == 4 )  THEN
+       boundary_ns = ( bc_dirichlet_n  .OR.  bc_dirichlet_s )
+       CALL get_variable( salsa_nest_offl%id_dynamic, varname_a, mf2a,                             &
+                          1,                                                                       &
+                          MERGE( nxl+1, 1, boundary_ns),                                           &
+                          MERGE( nzb+1, 1, boundary_ns ),                                          &
+                          MERGE( salsa_nest_offl%tind+1, 1, boundary_ns ),                         &
+                          MERGE( salsa_nest_offl%ncc, 0, boundary_ns ),                            &
+                          MERGE( nxr-nxl+1, 0, boundary_ns),                                       &
+                          MERGE( salsa_nest_offl%nzu, 0, boundary_ns),                             &
+                          MERGE( 2, 0, boundary_ns),                                               &
+                          .TRUE. )
     ENDIF
 !
-!-- If the chemical component is not activated, set its mass fraction to 0 to avoid mass inbalance
+!-- If the chemical component is not activated, set its mass fraction to 0 to avoid mass imbalance.
     cc_i2m = salsa_nest_offl%cc_in2mod
     IF ( index_so4 < 0  .AND. cc_i2m(1) > 0 )  mf2a(:,:,:,cc_i2m(1)) = 0.0_wp
     IF ( index_oc < 0   .AND. cc_i2m(2) > 0 )  mf2a(:,:,:,cc_i2m(2)) = 0.0_wp
@@ -13586,6 +17347,12 @@
     IF ( index_ss < 0   .AND. cc_i2m(5) > 0 )  mf2a(:,:,:,cc_i2m(5)) = 0.0_wp
     IF ( index_no < 0   .AND. cc_i2m(6) > 0 )  mf2a(:,:,:,cc_i2m(6)) = 0.0_wp
     IF ( index_nh < 0   .AND. cc_i2m(7) > 0 )  mf2a(:,:,:,cc_i2m(7)) = 0.0_wp
+! MODIFICATION: Added deactivation for new trace metal species in offline nesting
+    IF ( index_pb < 0   .AND. cc_i2m(8) > 0 )  mf2a(:,:,:,cc_i2m(8)) = 0.0_wp
+    IF ( index_hg < 0   .AND. cc_i2m(9) > 0 )  mf2a(:,:,:,cc_i2m(9)) = 0.0_wp
+    IF ( index_ni < 0   .AND. cc_i2m(10) > 0 )  mf2a(:,:,:,cc_i2m(10)) = 0.0_wp
+    IF ( index_cd < 0   .AND. cc_i2m(11) > 0 )  mf2a(:,:,:,cc_i2m(11)) = 0.0_wp
+    IF ( index_as < 0   .AND. cc_i2m(12) > 0 )  mf2a(:,:,:,cc_i2m(12)) = 0.0_wp
     mf2b = 0.0_wp
 !
 !-- Initialise variable type_so4_oc to indicate whether SO4 and/OC is included in mass fraction data
@@ -13598,87 +17365,120 @@
        type_so4_oc = 3
     ENDIF
 
+    proceed_processing = .FALSE.
     SELECT CASE ( ibound )
+
        CASE( 1 )
-          to_nconc = salsa_nest_offl%nconc_left
-          to_mconc = salsa_nest_offl%mconc_left
+          IF ( bc_dirichlet_l )  THEN
+             to_nconc = salsa_nest_offl%nconc_left
+             to_mconc = salsa_nest_offl%mconc_left
+             proceed_processing = .TRUE.
+          ENDIF
+
        CASE( 2 )
-          to_nconc = salsa_nest_offl%nconc_right
-          to_mconc = salsa_nest_offl%mconc_right
+          IF ( bc_dirichlet_r )  THEN
+             to_nconc = salsa_nest_offl%nconc_right
+             to_mconc = salsa_nest_offl%mconc_right
+             proceed_processing = .TRUE.
+          ENDIF
+
        CASE( 3 )
-          to_nconc = salsa_nest_offl%nconc_north
-          to_mconc = salsa_nest_offl%mconc_north
+          IF ( bc_dirichlet_n )  THEN
+             to_nconc = salsa_nest_offl%nconc_north
+             to_mconc = salsa_nest_offl%mconc_north
+             proceed_processing = .TRUE.
+          ENDIF
+
        CASE( 4 )
-          to_nconc = salsa_nest_offl%nconc_south
-          to_mconc = salsa_nest_offl%mconc_south
+          IF ( bc_dirichlet_s )  THEN
+             to_nconc = salsa_nest_offl%nconc_south
+             to_mconc = salsa_nest_offl%mconc_south
+             proceed_processing = .TRUE.
+          ENDIF
+
        CASE( 5 )
           to_nconc = salsa_nest_offl%nconc_top
           to_mconc = salsa_nest_offl%mconc_top
+          proceed_processing = .TRUE.
+
     END SELECT
+
+!
+!-- Since the subroutine is called for all mpi-ranks because of collective NetCDF input but arrays
+!-- for non-boundary mpi-ranks are only allocated with size 1, further processing of non-relevant
+!-- mpi-ranks for the mesoscale nesting is not required. To simplify the code, these mpi-ranks
+!-- leave the routine now.
+    IF ( .NOT. proceed_processing )  RETURN
 !
 !-- Set mass concentrations:
-!
 !-- Regime 1:
     SELECT CASE ( type_so4_oc )
+
        CASE ( 1 )  ! Both SO4 and OC given
 
-          ss = ( index_so4 - 1 ) * nbins_aerosol + start_subrange_1a  ! start
-          ee = ( index_so4 - 1 ) * nbins_aerosol + end_subrange_1a    ! end
+          ss = ( index_so4 - 1 ) * nbins_aerosol + start_subrange_1a
+          ee = ( index_so4 - 1 ) * nbins_aerosol + end_subrange_1a
           ib = start_subrange_1a
           DO  ic = ss, ee
-             DO i = is, ie
-                DO k = ks, ke
-                   DO t = 0, 1
-                      pmf1a = mf2a(t,k,i,cc_i2m(1)) / ( mf2a(t,k,i,cc_i2m(1)) + mf2a(t,k,i,cc_i2m(2)) )
+             DO  i = is, ie
+                DO  k = ks, ke
+                   DO  t = ts, te
+                      pmf1a = mf2a(t,k,i,cc_i2m(1)) /                                              &
+                              ( mf2a(t,k,i,cc_i2m(1)) + mf2a(t,k,i,cc_i2m(2)) + eps )
                       to_mconc(t,k,i,ic) = pmf1a * to_nconc(t,k,i,ib) * core(ib) * arhoh2so4
                    ENDDO
                 ENDDO
              ENDDO
              ib = ib + 1
           ENDDO
-          ss = ( index_oc - 1 ) * nbins_aerosol + start_subrange_1a ! start
-          ee = ( index_oc - 1 ) * nbins_aerosol + end_subrange_1a   ! end
+          ss = ( index_oc - 1 ) * nbins_aerosol + start_subrange_1a
+          ee = ( index_oc - 1 ) * nbins_aerosol + end_subrange_1a
           ib = start_subrange_1a
           DO  ic = ss, ee
-             DO i = is, ie
-                DO k = ks, ke
-                   DO t = 0, 1
-                      pmf1a = mf2a(t,k,i,cc_i2m(2)) / ( mf2a(t,k,i,cc_i2m(1)) + mf2a(t,k,i,cc_i2m(2)) )
+             DO  i = is, ie
+                DO  k = ks, ke
+                   DO  t = ts, te
+                      pmf1a = mf2a(t,k,i,cc_i2m(2)) /                                              &
+                              ( mf2a(t,k,i,cc_i2m(1)) + mf2a(t,k,i,cc_i2m(2)) + eps )
                       to_mconc(t,k,i,ic) = pmf1a * to_nconc(t,k,i,ib) * core(ib) * arhooc
                    ENDDO
                 ENDDO
              ENDDO
              ib = ib + 1
           ENDDO
+
        CASE ( 2 )  ! Only SO4
-          ss = ( index_so4 - 1 ) * nbins_aerosol + start_subrange_1a  ! start
-          ee = ( index_so4 - 1 ) * nbins_aerosol + end_subrange_1a    ! end
+          ss = ( index_so4 - 1 ) * nbins_aerosol + start_subrange_1a
+          ee = ( index_so4 - 1 ) * nbins_aerosol + end_subrange_1a
           ib = start_subrange_1a
           DO  ic = ss, ee
-             DO i = is, ie
-                DO k = ks, ke
-                   DO t = 0, 1
+             DO  i = is, ie
+                DO  k = ks, ke
+                   DO  t = ts, te
                       to_mconc(t,k,i,ic) = to_nconc(t,k,i,ib) * core(ib) * arhoh2so4
                    ENDDO
                 ENDDO
              ENDDO
              ib = ib + 1
           ENDDO
+
        CASE ( 3 )  ! Only OC
-          ss = ( index_oc - 1 ) * nbins_aerosol + start_subrange_1a ! start
-          ee = ( index_oc - 1 ) * nbins_aerosol + end_subrange_1a   ! end
+          ss = ( index_oc - 1 ) * nbins_aerosol + start_subrange_1a
+          ee = ( index_oc - 1 ) * nbins_aerosol + end_subrange_1a
           ib = start_subrange_1a
           DO  ic = ss, ee
-             DO i = is, ie
-                DO k = ks, ke
-                   DO t = 0, 1
+             DO  i = is, ie
+                DO  k = ks, ke
+                   DO  t = ts, te
                       to_mconc(t,k,i,ic) = to_nconc(t,k,i,ib) * core(ib) * arhooc
                    ENDDO
                 ENDDO
              ENDDO
              ib = ib + 1
           ENDDO
+
     END SELECT
+
 !
 !-- Regimes 2a and 2b:
     IF ( index_so4 > 0 ) THEN
@@ -13702,6 +17502,22 @@
     IF ( index_nh > 0 ) THEN
        CALL set_nest_mass( index_nh, 7, arhonh3 )
     ENDIF
+! MODIFICATION: Added calls for new trace metal species in offline nesting
+    IF ( index_pb > 0 ) THEN
+       CALL set_nest_mass( index_pb, 8, arhopb )
+    ENDIF
+    IF ( index_hg > 0 ) THEN
+       CALL set_nest_mass( index_hg, 9, arhohg )
+    ENDIF
+    IF ( index_ni > 0 ) THEN
+       CALL set_nest_mass( index_ni, 10, arhoni )
+    ENDIF
+    IF ( index_cd > 0 ) THEN
+       CALL set_nest_mass( index_cd, 11, arhocd )
+    ENDIF
+    IF ( index_as > 0 ) THEN
+       CALL set_nest_mass( index_as, 12, arhoas )
+    ENDIF
 
     DEALLOCATE( mf2a, mf2b )
 
@@ -13720,11 +17536,11 @@
 
     CONTAINS
 
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
 ! Description:
 ! ------------
 !> Set nesting boundaries for aerosol mass.
-!------------------------------------------------------------------------------!
+!--------------------------------------------------------------------------------------------------!
     SUBROUTINE set_nest_mass( ispec, ispec_def, prho )
 
        IMPLICIT NONE
@@ -13736,20 +17552,23 @@
        INTEGER(iwp), INTENT(in) ::  ispec_def  !< default aerosol species index
 
        REAL(wp), INTENT(in) ::  prho !< aerosol density
+
+
 !
 !--    Define the index of the chemical component in the input data
        ic = salsa_nest_offl%cc_in2mod(ispec_def)
 
-       DO i = is, ie
-          DO k = ks, ke
-             DO t = 0, 1
+       DO  i = is, ie
+          DO  k = ks, ke
+             DO  t = ts, te
 !
 !--             Regime 2a:
                 ss = ( ispec - 1 ) * nbins_aerosol + start_subrange_2a
                 ee = ( ispec - 1 ) * nbins_aerosol + end_subrange_2a
                 ib = start_subrange_2a
-                DO icc = ss, ee
-                   to_mconc(t,k,i,icc) = MAX( 0.0_wp, mf2a(t,k,i,ic) / SUM( mf2a(t,k,i,:) ) ) *    &
+                DO  icc = ss, ee
+                   to_mconc(t,k,i,icc) = MAX( 0.0_wp, mf2a(t,k,i,ic) /                             &
+                                                      ( SUM( mf2a(t,k,i,:) ) + eps ) ) *           &
                                          to_nconc(t,k,i,ib) * core(ib) * prho
                    ib = ib + 1
                 ENDDO
@@ -13760,14 +17579,13 @@
 !--                 TODO!
                     mf2b(t,k,i,ic) = mf2b(t,k,i,ic)
                 ENDIF
-             ENDDO   ! k
 
-          ENDDO   ! j
-       ENDDO   ! i
+             ENDDO
+          ENDDO
+       ENDDO
 
     END SUBROUTINE set_nest_mass
 
  END SUBROUTINE nesting_offl_aero_mass
-
 
  END MODULE salsa_mod
