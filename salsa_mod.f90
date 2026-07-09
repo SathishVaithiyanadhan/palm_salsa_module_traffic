@@ -4284,11 +4284,11 @@
              zgocnv = chem_species(gas_index_chem(4))%conc(k,j,i) * ppm_to_nconc(k)
              zgocsv = chem_species(gas_index_chem(5))%conc(k,j,i) * ppm_to_nconc(k)
           ELSE
-             zgso4  = chem_species(gas_index_chem(6))%conc(k,j,i) * ppm_to_nconc(k)
-             zghno3 = chem_species(gas_index_chem(7))%conc(k,j,i) * ppm_to_nconc(k)
-             zgnh3  = chem_species(gas_index_chem(8))%conc(k,j,i) * ppm_to_nconc(k)
-             zgocnv = chem_species(gas_index_chem(9))%conc(k,j,i) * ppm_to_nconc(k)
-             zgocsv = chem_species(gas_index_chem(10))%conc(k,j,i) * ppm_to_nconc(k)
+             zgso4_tra  = chem_species(gas_index_chem(6))%conc(k,j,i) * ppm_to_nconc(k)
+             zghno3_tra = chem_species(gas_index_chem(7))%conc(k,j,i) * ppm_to_nconc(k)
+             zgnh3_tra  = chem_species(gas_index_chem(8))%conc(k,j,i) * ppm_to_nconc(k)
+             zgocnv_tra = chem_species(gas_index_chem(9))%conc(k,j,i) * ppm_to_nconc(k)
+             zgocsv_tra = chem_species(gas_index_chem(10))%conc(k,j,i) * ppm_to_nconc(k)
           ENDIF
        ELSE
           IF ( pop == 1 )  THEN
@@ -4298,11 +4298,11 @@
              zgocnv = salsa_gas(4)%conc(k,j,i)
              zgocsv = salsa_gas(5)%conc(k,j,i)
           ELSE
-             zgso4  = salsa_gas(6)%conc(k,j,i)
-             zghno3 = salsa_gas(7)%conc(k,j,i)
-             zgnh3  = salsa_gas(8)%conc(k,j,i)
-             zgocnv = salsa_gas(9)%conc(k,j,i)
-             zgocsv = salsa_gas(10)%conc(k,j,i)
+             zgso4_tra  = salsa_gas(6)%conc(k,j,i)
+             zghno3_tra = salsa_gas(7)%conc(k,j,i)
+             zgnh3_tra  = salsa_gas(8)%conc(k,j,i)
+             zgocnv_tra = salsa_gas(9)%conc(k,j,i)
+             zgocsv_tra = salsa_gas(10)%conc(k,j,i)
           ENDIF
        ENDIF
 !
@@ -4314,10 +4314,15 @@
           CALL coagulation( lo_aero, dt_salsa, in_t(k), in_p(k) )
        ENDIF
 !
-!--    Condensation
+!--    Condensation - use separate gas variables per population
        IF ( lscnd )   THEN
-          CALL condensation( lo_aero, zgso4, zgocnv, zgocsv,  zghno3, zgnh3, in_cw(k), in_cs(k),   &
-                             in_t(k), in_p(k), dt_salsa, prtcl )
+          IF ( pop == 1 )  THEN
+             CALL condensation( lo_aero, zgso4, zgocnv, zgocsv,  zghno3, zgnh3, in_cw(k), in_cs(k),   &
+                                in_t(k), in_p(k), dt_salsa, prtcl )
+          ELSE
+             CALL condensation( lo_aero, zgso4_tra, zgocnv_tra, zgocsv_tra, zghno3_tra, zgnh3_tra,     &
+                                in_cw(k), in_cs(k), in_t(k), in_p(k), dt_salsa, prtcl )
+          ENDIF
        ENDIF
 !
 !--    Deposition
