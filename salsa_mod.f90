@@ -3318,6 +3318,12 @@
        CASE ( 'mass_fracs_b' )
           READ ( 13 )  mass_fracs_b
 
+       CASE ( 'mass_fracs_a_tra' )
+          READ ( 13 )  mass_fracs_a_tra
+
+       CASE ( 'mass_fracs_b_tra' )
+          READ ( 13 )  mass_fracs_b_tra
+
        CASE ( 'reglim' )
           READ ( 13 )  reglim
 
@@ -3354,6 +3360,8 @@
     CALL rrd_mpi_io( 'ncc', ncc )
     CALL rrd_mpi_io_global_array( 'mass_fracs_a', mass_fracs_a )
     CALL rrd_mpi_io_global_array( 'mass_fracs_b', mass_fracs_b )
+    CALL rrd_mpi_io_global_array( 'mass_fracs_a_tra', mass_fracs_a_tra )
+    CALL rrd_mpi_io_global_array( 'mass_fracs_b_tra', mass_fracs_b_tra )
     CALL rrd_mpi_io_global_array( 'reglim', reglim )
 
  END SUBROUTINE salsa_rrd_global_mpi
@@ -3412,6 +3420,24 @@
              aerosol_number(ib)%conc(:,nysc-nbgp:nync+nbgp,nxlc-nbgp:nxrc+nbgp) =                  &
                                                    tmp_3d(:,nysf-nbgp:nynf+nbgp,nxlf-nbgp:nxrf+nbgp)
           ENDDO
+
+       CASE ( 'aerosol_mass_tra' )
+          IF ( ALLOCATED( aerosol_number_tra ) )  THEN
+             DO  ic = 1, ncomponents_mass * nbins_aerosol
+                IF ( k == 1 )  READ ( 13 ) tmp_3d
+                aerosol_mass_tra(ic)%conc(:,nysc-nbgp:nync+nbgp,nxlc-nbgp:nxrc+nbgp) =                &
+                                                      tmp_3d(:,nysf-nbgp:nynf+nbgp,nxlf-nbgp:nxrf+nbgp)
+             ENDDO
+          ENDIF
+
+       CASE ( 'aerosol_number_tra' )
+          IF ( ALLOCATED( aerosol_number_tra ) )  THEN
+             DO  ib = 1, nbins_aerosol
+                IF ( k == 1 )  READ ( 13 ) tmp_3d
+                aerosol_number_tra(ib)%conc(:,nysc-nbgp:nync+nbgp,nxlc-nbgp:nxrc+nbgp) =              &
+                                                      tmp_3d(:,nysf-nbgp:nynf+nbgp,nxlf-nbgp:nxrf+nbgp)
+             ENDDO
+          ENDIF
 
        CASE( 'salsa_gases_av' )
           IF ( .NOT. ALLOCATED( salsa_gases_av ) )  THEN
@@ -3575,6 +3601,20 @@
        CALL rrd_mpi_io( 'aerosol_number_' // counter, tmp_3d )
        aerosol_number(ib)%conc = tmp_3d
     ENDDO
+
+    IF ( ALLOCATED( aerosol_number_tra ) )  THEN
+       DO  ic = 1, nbins_aerosol * ncomponents_mass
+          WRITE( counter, '(I3.3)')  ic
+          CALL rrd_mpi_io( 'aerosol_mass_tra_' // counter, tmp_3d )
+          aerosol_mass_tra(ic)%conc = tmp_3d
+       ENDDO
+
+       DO  ib = 1, nbins_aerosol
+          WRITE( counter, '(I3.3)')  ib
+          CALL rrd_mpi_io( 'aerosol_number_tra_' // counter, tmp_3d )
+          aerosol_number_tra(ib)%conc = tmp_3d
+       ENDDO
+    ENDIF
 
     IF ( .NOT. salsa_gases_from_chem )  THEN
        CALL rd_mpi_io_check_array( 'salsa_gases_av_001', found = array_found )
@@ -3774,6 +3814,18 @@
           WRITE ( 14 )  aerosol_number(ib)%conc
        ENDDO
 
+       IF ( ALLOCATED( aerosol_number_tra ) )  THEN
+          CALL wrd_write_string( 'aerosol_mass_tra' )
+          DO  ic = 1, nbins_aerosol * ncomponents_mass
+             WRITE ( 14 )  aerosol_mass_tra(ic)%conc
+          ENDDO
+
+          CALL wrd_write_string( 'aerosol_number_tra' )
+          DO  ib = 1, nbins_aerosol
+             WRITE ( 14 )  aerosol_number_tra(ib)%conc
+          ENDDO
+       ENDIF
+
        IF (  .NOT. salsa_gases_from_chem )  THEN
 
           IF ( ALLOCATED( salsa_gases_av ) )  THEN
@@ -3862,6 +3914,20 @@
           tmp_3d = aerosol_number(ib)%conc
           CALL wrd_mpi_io( 'aerosol_number_' // counter, tmp_3d )
        ENDDO
+
+       IF ( ALLOCATED( aerosol_number_tra ) )  THEN
+          DO  ic = 1, nbins_aerosol * ncomponents_mass
+             WRITE( counter, '(I3.3)')  ic
+             tmp_3d = aerosol_mass_tra(ic)%conc
+             CALL wrd_mpi_io( 'aerosol_mass_tra_' // counter, tmp_3d )
+          ENDDO
+
+          DO  ib = 1, nbins_aerosol
+             WRITE( counter, '(I3.3)')  ib
+             tmp_3d = aerosol_number_tra(ib)%conc
+             CALL wrd_mpi_io( 'aerosol_number_tra_' // counter, tmp_3d )
+          ENDDO
+       ENDIF
 
        IF (  .NOT. salsa_gases_from_chem )  THEN
 
@@ -4018,7 +4084,6 @@
     zgnh3_tra        = nclim
     zgocnv_tra       = nclim
     zgocsv_tra       = nclim
-    zgocsv           = nclim
 !
 !-- Aerosol number is always set, but mass can be uninitialized
     DO ib = 1, nbins_aerosol
@@ -9163,6 +9228,17 @@
                                            alternative_communicator = communicator_salsa )
                    ENDDO
                 ENDDO
+                IF ( ALLOCATED( aerosol_number_tra ) )  THEN
+                   DO  ib = 1, nbins_aerosol
+                      CALL exchange_horiz( aerosol_number_tra(ib)%conc, nbgp,                       &
+                                           alternative_communicator = communicator_salsa )
+                      DO  ic = 1, ncomponents_mass
+                         icc = ( ic - 1 ) * nbins_aerosol + ib
+                         CALL exchange_horiz( aerosol_mass_tra(icc)%conc, nbgp,                     &
+                                              alternative_communicator = communicator_salsa )
+                      ENDDO
+                   ENDDO
+                ENDIF
                 IF ( .NOT. salsa_gases_from_chem )  THEN
                    DO  ig = 1, ngases_salsa
                       CALL exchange_horiz( salsa_gas(ig)%conc, nbgp,                               &
@@ -9191,6 +9267,17 @@
                                         alternative_communicator = communicator_salsa )
                 ENDDO
              ENDDO
+             IF ( ALLOCATED( aerosol_number_tra ) )  THEN
+                DO  ib = 1, nbins_aerosol
+                   CALL exchange_horiz( aerosol_number_tra(ib)%conc_p, nbgp,                        &
+                                        alternative_communicator = communicator_salsa )
+                   DO  ic = 1, ncomponents_mass
+                      icc = ( ic - 1 ) * nbins_aerosol + ib
+                      CALL exchange_horiz( aerosol_mass_tra(icc)%conc_p, nbgp,                      &
+                                           alternative_communicator = communicator_salsa )
+                   ENDDO
+                ENDDO
+             ENDIF
              IF ( .NOT. salsa_gases_from_chem )  THEN
                 DO  ig = 1, ngases_salsa
                    CALL exchange_horiz( salsa_gas(ig)%conc_p, nbgp,                                &
@@ -9211,6 +9298,17 @@
                                         alternative_communicator = communicator_salsa )
                 ENDDO
              ENDDO
+             IF ( ALLOCATED( aerosol_number_tra ) )  THEN
+                DO  ib = 1, nbins_aerosol
+                   CALL exchange_horiz( aerosol_number_tra(ib)%conc, nbgp,                          &
+                                        alternative_communicator = communicator_salsa )
+                   DO  ic = 1, ncomponents_mass
+                      icc = ( ic - 1 ) * nbins_aerosol + ib
+                      CALL exchange_horiz( aerosol_mass_tra(icc)%conc, nbgp,                        &
+                                           alternative_communicator = communicator_salsa )
+                   ENDDO
+                ENDDO
+             ENDIF
              IF ( .NOT. salsa_gases_from_chem )  THEN
                 DO  ig = 1, ngases_salsa
                    CALL exchange_horiz( salsa_gas(ig)%conc, nbgp,                                  &
@@ -9748,6 +9846,17 @@
                             aerosol_mass(icc)%conc(k+bc_hv%koff(m),j+bc_hv%joff(m),i+bc_hv%ioff(m))
                    ENDDO
                 ENDDO
+                IF ( ALLOCATED( aerosol_number_tra ) )  THEN
+                   DO  ib = 1, nbins_aerosol
+                      aerosol_number_tra(ib)%conc_p(k+bc_hv%koff(m),j+bc_hv%joff(m),i+bc_hv%ioff(m)) = &
+                               aerosol_number_tra(ib)%conc(k+bc_hv%koff(m),j+bc_hv%joff(m),i+bc_hv%ioff(m))
+                      DO  ic = 1, ncomponents_mass
+                         icc = ( ic - 1 ) * nbins_aerosol + ib
+                         aerosol_mass_tra(icc)%conc_p(k+bc_hv%koff(m),j+bc_hv%joff(m),i+bc_hv%ioff(m)) = &
+                               aerosol_mass_tra(icc)%conc(k+bc_hv%koff(m),j+bc_hv%joff(m),i+bc_hv%ioff(m))
+                      ENDDO
+                   ENDDO
+                ENDIF
                 IF ( .NOT. salsa_gases_from_chem )  THEN
                    DO  ig = 1, ngases_salsa
                       salsa_gas(ig)%conc_p(k+bc_hv%koff(m),j+bc_hv%joff(m),i+bc_hv%ioff(m)) =      &
@@ -9777,6 +9886,17 @@
                                                                aerosol_mass(icc)%conc_p(k,j,i)
                    ENDDO
                 ENDDO
+                IF ( ALLOCATED( aerosol_number_tra ) )  THEN
+                   DO  ib = 1, nbins_aerosol
+                      aerosol_number_tra(ib)%conc_p(k+bc_hv%koff(m),j+bc_hv%joff(m),i+bc_hv%ioff(m)) = &
+                                                               aerosol_number_tra(ib)%conc_p(k,j,i)
+                      DO  ic = 1, ncomponents_mass
+                         icc = ( ic - 1 ) * nbins_aerosol + ib
+                         aerosol_mass_tra(icc)%conc_p(k+bc_hv%koff(m),j+bc_hv%joff(m),i+bc_hv%ioff(m)) = &
+                                                               aerosol_mass_tra(icc)%conc_p(k,j,i)
+                      ENDDO
+                   ENDDO
+                ENDIF
                 IF ( .NOT. salsa_gases_from_chem ) THEN
                    DO  ig = 1, ngases_salsa
                       salsa_gas(ig)%conc_p(k+bc_hv%koff(m),j+bc_hv%joff(m),i+bc_hv%ioff(m)) =      &
@@ -9799,6 +9919,15 @@
                    aerosol_mass(icc)%conc_p(nzt+1,:,:) = aerosol_mass(icc)%conc(nzt+1,:,:)
                 ENDDO
              ENDDO
+             IF ( ALLOCATED( aerosol_number_tra ) )  THEN
+                DO  ib = 1, nbins_aerosol
+                   aerosol_number_tra(ib)%conc_p(nzt+1,:,:) = aerosol_number_tra(ib)%conc(nzt+1,:,:)
+                   DO  ic = 1, ncomponents_mass
+                      icc = ( ic - 1 ) * nbins_aerosol + ib
+                      aerosol_mass_tra(icc)%conc_p(nzt+1,:,:) = aerosol_mass_tra(icc)%conc(nzt+1,:,:)
+                   ENDDO
+                ENDDO
+             ENDIF
              IF ( .NOT. salsa_gases_from_chem )  THEN
                 DO  ig = 1, ngases_salsa
                    salsa_gas(ig)%conc_p(nzt+1,:,:) = salsa_gas(ig)%conc(nzt+1,:,:)
@@ -9814,6 +9943,15 @@
                    aerosol_mass(icc)%conc_p(nzt+1,:,:) = aerosol_mass(icc)%conc_p(nzt,:,:)
                 ENDDO
              ENDDO
+             IF ( ALLOCATED( aerosol_number_tra ) )  THEN
+                DO  ib = 1, nbins_aerosol
+                   aerosol_number_tra(ib)%conc_p(nzt+1,:,:) = aerosol_number_tra(ib)%conc_p(nzt,:,:)
+                   DO  ic = 1, ncomponents_mass
+                      icc = ( ic - 1 ) * nbins_aerosol + ib
+                      aerosol_mass_tra(icc)%conc_p(nzt+1,:,:) = aerosol_mass_tra(icc)%conc_p(nzt,:,:)
+                   ENDDO
+                ENDDO
+             ENDIF
              IF ( .NOT. salsa_gases_from_chem )  THEN
                 DO  ig = 1, ngases_salsa
                    salsa_gas(ig)%conc_p(nzt+1,:,:) = salsa_gas(ig)%conc_p(nzt,:,:)
@@ -9831,6 +9969,15 @@
                                                          bc_am_t_val(icc) * dzu(nzt+1)
                 ENDDO
              ENDDO
+             IF ( ALLOCATED( aerosol_number_tra ) )  THEN
+                DO  ib = 1, nbins_aerosol
+                   aerosol_number_tra(ib)%conc_p(nzt+1,:,:) = aerosol_number_tra(ib)%conc_p(nzt,:,:)
+                   DO  ic = 1, ncomponents_mass
+                      icc = ( ic - 1 ) * nbins_aerosol + ib
+                      aerosol_mass_tra(icc)%conc_p(nzt+1,:,:) = aerosol_mass_tra(icc)%conc_p(nzt,:,:)
+                   ENDDO
+                ENDDO
+             ENDIF
              IF ( .NOT. salsa_gases_from_chem )  THEN
                 DO  ig = 1, ngases_salsa
                    salsa_gas(ig)%conc_p(nzt+1,:,:) = salsa_gas(ig)%conc_p(nzt,:,:) +               &
@@ -9861,6 +10008,25 @@
                    ENDDO
                 ENDDO
              ENDDO
+             IF ( ALLOCATED( aerosol_number_tra ) )  THEN
+                DO  ib = 1, nbins_aerosol
+                   DO  i = nxlg, nxrg
+                      DO  k = nzb+1, nzt
+                         flag = MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,nys-1,i), 0 ) )
+                         aerosol_number_tra(ib)%conc_p(k,nys-1,i) = aerosol_number_tra(ib)%init(k) * flag
+                      ENDDO
+                   ENDDO
+                   DO  ic = 1, ncomponents_mass
+                      icc = ( ic - 1 ) * nbins_aerosol + ib
+                      DO  i = nxlg, nxrg
+                         DO  k = nzb+1, nzt
+                            flag = MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,nys-1,i), 0 ) )
+                            aerosol_mass_tra(icc)%conc_p(k,nys-1,i) = aerosol_mass_tra(icc)%init(k) * flag
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDDO
+             ENDIF
              IF ( .NOT. salsa_gases_from_chem )  THEN
                 DO  ig = 1, ngases_salsa
                    DO  i = nxlg, nxrg
@@ -9891,6 +10057,25 @@
                    ENDDO
                 ENDDO
              ENDDO
+             IF ( ALLOCATED( aerosol_number_tra ) )  THEN
+                DO  ib = 1, nbins_aerosol
+                   DO  i = nxlg, nxrg
+                      DO  k = nzb+1, nzt
+                         flag = MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,nys-1,i), 0 ) )
+                         aerosol_number_tra(ib)%conc_p(k,nys-1,i) = aerosol_number_tra(ib)%conc_p(k,nys,i) * flag
+                      ENDDO
+                   ENDDO
+                   DO  ic = 1, ncomponents_mass
+                      icc = ( ic - 1 ) * nbins_aerosol + ib
+                      DO  i = nxlg, nxrg
+                         DO  k = nzb+1, nzt
+                            flag = MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,nys-1,i), 0 ) )
+                            aerosol_mass_tra(icc)%conc_p(k,nys-1,i) = aerosol_mass_tra(icc)%conc_p(k,nys,i) * flag
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDDO
+             ENDIF
              IF ( .NOT. salsa_gases_from_chem )  THEN
                 DO  ig = 1, ngases_salsa
                    DO  i = nxlg, nxrg
@@ -9923,13 +10108,32 @@
                    ENDDO
                 ENDDO
              ENDDO
+             IF ( ALLOCATED( aerosol_number_tra ) )  THEN
+                DO  ib = 1, nbins_aerosol
+                   DO  i = nxlg, nxrg
+                      DO  k = nzb+1, nzt
+                         flag = MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,nyn+1,i), 0 ) )
+                         aerosol_number_tra(ib)%conc_p(k,nyn+1,i) = aerosol_number_tra(ib)%init(k) * flag
+                      ENDDO
+                   ENDDO
+                   DO  ic = 1, ncomponents_mass
+                      icc = ( ic - 1 ) * nbins_aerosol + ib
+                      DO  i = nxlg, nxrg
+                         DO  k = nzb+1, nzt
+                            flag = MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,nyn+1,i), 0 ) )
+                            aerosol_mass_tra(icc)%conc_p(k,nyn+1,i) = aerosol_mass_tra(icc)%init(k) * flag
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDDO
+             ENDIF
              IF ( .NOT. salsa_gases_from_chem )  THEN
                 DO  ig = 1, ngases_salsa
                    DO  i = nxlg, nxrg
                       DO  k = nzb+1, nzt
                          flag = MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,nyn+1,i), 0 ) )
                          salsa_gas(ig)%conc_p(k,nyn+1,i) = salsa_gas(ig)%init(k) * flag
-                      ENDDO
+                     ENDDO
                    ENDDO
                 ENDDO
              ENDIF
@@ -9953,6 +10157,25 @@
                    ENDDO
                 ENDDO
              ENDDO
+             IF ( ALLOCATED( aerosol_number_tra ) )  THEN
+                DO  ib = 1, nbins_aerosol
+                   DO  i = nxlg, nxrg
+                      DO  k = nzb+1, nzt
+                         flag = MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,nyn+1,i), 0 ) )
+                         aerosol_number_tra(ib)%conc_p(k,nyn+1,i) = aerosol_number_tra(ib)%conc_p(k,nyn,i) * flag
+                      ENDDO
+                   ENDDO
+                   DO  ic = 1, ncomponents_mass
+                      icc = ( ic - 1 ) * nbins_aerosol + ib
+                      DO  i = nxlg, nxrg
+                         DO  k = nzb+1, nzt
+                            flag = MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,nyn+1,i), 0 ) )
+                            aerosol_mass_tra(icc)%conc_p(k,nyn+1,i) = aerosol_mass_tra(icc)%conc_p(k,nyn,i) * flag
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDDO
+             ENDIF
              IF ( .NOT. salsa_gases_from_chem )  THEN
                 DO  ig = 1, ngases_salsa
                    DO  i = nxlg, nxrg
@@ -9985,6 +10208,25 @@
                    ENDDO
                 ENDDO
              ENDDO
+             IF ( ALLOCATED( aerosol_number_tra ) )  THEN
+                DO  ib = 1, nbins_aerosol
+                   DO  j = nysg, nyng
+                      DO  k = nzb+1, nzt
+                         flag = MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,nxl-1), 0 ) )
+                         aerosol_number_tra(ib)%conc_p(k,j,nxl-1) = aerosol_number_tra(ib)%init(k) * flag
+                      ENDDO
+                   ENDDO
+                   DO  ic = 1, ncomponents_mass
+                      icc = ( ic - 1 ) * nbins_aerosol + ib
+                      DO  j = nysg, nyng
+                         DO  k = nzb+1, nzt
+                            flag = MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,nxl-1), 0 ) )
+                            aerosol_mass_tra(icc)%conc_p(k,j,nxl-1) = aerosol_mass_tra(icc)%init(k) * flag
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDDO
+             ENDIF
              IF ( .NOT. salsa_gases_from_chem )  THEN
                 DO  ig = 1, ngases_salsa
                    DO  j = nysg, nyng
@@ -10015,6 +10257,25 @@
                    ENDDO
                 ENDDO
              ENDDO
+             IF ( ALLOCATED( aerosol_number_tra ) )  THEN
+                DO  ib = 1, nbins_aerosol
+                   DO  j = nysg, nyng
+                      DO  k = nzb+1, nzt
+                         flag = MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,nxl-1), 0 ) )
+                         aerosol_number_tra(ib)%conc_p(k,j,nxl-1) = aerosol_number_tra(ib)%conc_p(k,j,nxl) * flag
+                      ENDDO
+                   ENDDO
+                   DO  ic = 1, ncomponents_mass
+                      icc = ( ic - 1 ) * nbins_aerosol + ib
+                      DO  j = nysg, nyng
+                         DO  k = nzb+1, nzt
+                            flag = MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,nxl-1), 0 ) )
+                            aerosol_mass_tra(icc)%conc_p(k,j,nxl-1) = aerosol_mass_tra(icc)%conc_p(k,j,nxl) * flag
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDDO
+             ENDIF
              IF ( .NOT. salsa_gases_from_chem )  THEN
                 DO  ig = 1, ngases_salsa
                    DO  j = nysg, nyng
@@ -10047,6 +10308,25 @@
                    ENDDO
                 ENDDO
              ENDDO
+             IF ( ALLOCATED( aerosol_number_tra ) )  THEN
+                DO  ib = 1, nbins_aerosol
+                   DO  j = nysg, nyng
+                      DO  k = nzb+1, nzt
+                         flag = MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,nxr+1), 0 ) )
+                         aerosol_number_tra(ib)%conc_p(k,j,nxr+1) = aerosol_number_tra(ib)%init(k) * flag
+                      ENDDO
+                   ENDDO
+                   DO  ic = 1, ncomponents_mass
+                      icc = ( ic - 1 ) * nbins_aerosol + ib
+                      DO  j = nysg, nyng
+                         DO  k = nzb+1, nzt
+                            flag = MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,nxr+1), 0 ) )
+                            aerosol_mass_tra(icc)%conc_p(k,j,nxr+1) = aerosol_mass_tra(icc)%init(k) * flag
+                         ENDDO
+                      ENDDO
+                   ENDDO
+                ENDDO
+             ENDIF
              IF ( .NOT. salsa_gases_from_chem )  THEN
                 DO  ig = 1, ngases_salsa
                    DO  j = nysg, nyng
@@ -10077,25 +10357,25 @@
                    ENDDO
                 ENDDO
              ENDDO
-             IF ( .NOT. salsa_gases_from_chem )  THEN
-                DO  ig = 1, ngases_salsa
+             IF ( ALLOCATED( aerosol_number_tra ) )  THEN
+                DO  ib = 1, nbins_aerosol
                    DO  j = nysg, nyng
                       DO  k = nzb+1, nzt
                          flag = MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,nxr+1), 0 ) )
-                         salsa_gas(ig)%conc_p(k,j,nxr+1) = salsa_gas(ig)%conc_p(k,j,nxr) * flag
+                         aerosol_number_tra(ib)%conc_p(k,j,nxr+1) = aerosol_number_tra(ib)%conc_p(k,j,nxr) * flag
+                      ENDDO
+                   ENDDO
+                   DO  ic = 1, ncomponents_mass
+                      icc = ( ic - 1 ) * nbins_aerosol + ib
+                      DO  j = nysg, nyng
+                         DO  k = nzb+1, nzt
+                            flag = MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,nxr+1), 0 ) )
+                            aerosol_mass_tra(icc)%conc_p(k,j,nxr+1) = aerosol_mass_tra(icc)%conc_p(k,j,nxr) * flag
+                         ENDDO
                       ENDDO
                    ENDDO
                 ENDDO
              ENDIF
-
-          ENDIF
-
-       ELSE
-!
-!--       Conditions for timelevel t (if called from salsa_exchange_horiz_bounds).
-!--       Only horizontal boundary conditions are set here.
-          IF ( bc_dirichlet_aer_s )  THEN
-
              DO  ib = 1, nbins_aerosol
                 DO  i = nxlg, nxrg
                    DO  k = nzb+1, nzt
