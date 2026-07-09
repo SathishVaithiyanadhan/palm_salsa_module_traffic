@@ -21,7 +21,7 @@
 ! Authors:
 ! --------
 ! @author Mona Kurppa (University of Helsinki)
-!
+! @author Sathish Kumar Vaithiyanadhan (University of Augsburg)
 !
 ! Description:
 ! ------------
@@ -36,7 +36,7 @@
 !> 753-769)
 !>
 !> @todo Apply information from emission_stack_height to lift emission sources.
-!> @done Allow insoluble emissions - working with both soluble and insoluble emissions (mass_frac_ and mass_frac_b) from the salsa emission file - done by Sathish.
+!> @done Allow insoluble emissions - working with both soluble and insoluble emissions (mass_frac_ and mass_frac_b) from the salsa emission file.
 !> @done Add profile output for vertical fluxes - done by Sathish.
 !> @done Add trace metals in the listspec- done by Sathish.
 !> @done Add dual-population (traffic/non-traffic) aerosol processing - done by Sathish.
