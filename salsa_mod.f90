@@ -21,7 +21,7 @@
 ! Authors:
 ! --------
 ! @author Mona Kurppa (University of Helsinki)
-! @author Sathish Kumar Vaithiyanadhan (University of Augsburg)
+!
 !
 ! Description:
 ! ------------
@@ -36,7 +36,7 @@
 !> 753-769)
 !>
 !> @todo Apply information from emission_stack_height to lift emission sources.
-!> @done Allow insoluble emissions - working with both soluble and insoluble emissions (mass_frac_ and mass_frac_b) from the salsa emission file.
+!> @done Allow insoluble emissions - working with both soluble and insoluble emissions (mass_frac_ and mass_frac_b) from the salsa emission file - done by Sathish.
 !> @done Add profile output for vertical fluxes - done by Sathish.
 !> @done Add trace metals in the listspec- done by Sathish.
 !> @done Add dual-population (traffic/non-traffic) aerosol processing - done by Sathish.
@@ -3542,6 +3542,52 @@
           s_h2o_av(:,nysc-nbgp:nync+nbgp,nxlc-nbgp:nxrc+nbgp) =                                    &
                                                    tmp_3d(:,nysf-nbgp:nynf+nbgp,nxlf-nbgp:nxrf+nbgp)
 
+       CASE ( 'ldsa_av_tra' )
+          IF ( .NOT. ALLOCATED( ldsa_av_tra ) )  ALLOCATE( ldsa_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
+          IF ( k == 1 )  READ ( 13 ) tmp_3d
+          ldsa_av_tra(:,nysc-nbgp:nync+nbgp,nxlc-nbgp:nxrc+nbgp) =                                     &
+                                                   tmp_3d(:,nysf-nbgp:nynf+nbgp,nxlf-nbgp:nxrf+nbgp)
+
+       CASE ( 'nufp_av_tra' )
+          IF ( .NOT. ALLOCATED( nufp_av_tra ) )  ALLOCATE( nufp_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
+          IF ( k == 1 )  READ ( 13 ) tmp_3d
+          nufp_av_tra(:,nysc-nbgp:nync+nbgp,nxlc-nbgp:nxrc+nbgp) =                                     &
+                                                   tmp_3d(:,nysf-nbgp:nynf+nbgp,nxlf-nbgp:nxrf+nbgp)
+
+       CASE ( 'ntot_av_tra' )
+          IF ( .NOT. ALLOCATED( ntot_av_tra ) )  ALLOCATE( ntot_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
+          IF ( k == 1 )  READ ( 13 ) tmp_3d
+          ntot_av_tra(:,nysc-nbgp:nync+nbgp,nxlc-nbgp:nxrc+nbgp) =                                     &
+                                                   tmp_3d(:,nysf-nbgp:nynf+nbgp,nxlf-nbgp:nxrf+nbgp)
+
+       CASE ( 'pm01_av_tra' )
+          IF ( .NOT. ALLOCATED( pm01_av_tra ) )  ALLOCATE( pm01_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
+          IF ( k == 1 )  READ ( 13 ) tmp_3d
+          pm01_av_tra(:,nysc-nbgp:nync+nbgp,nxlc-nbgp:nxrc+nbgp) =                                     &
+                                                   tmp_3d(:,nysf-nbgp:nynf+nbgp,nxlf-nbgp:nxrf+nbgp)
+
+       CASE ( 'pm25_av_tra' )
+          IF ( .NOT. ALLOCATED( pm25_av_tra ) )  ALLOCATE( pm25_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
+          IF ( k == 1 )  READ ( 13 ) tmp_3d
+          pm25_av_tra(:,nysc-nbgp:nync+nbgp,nxlc-nbgp:nxrc+nbgp) =                                     &
+                                                   tmp_3d(:,nysf-nbgp:nynf+nbgp,nxlf-nbgp:nxrf+nbgp)
+
+       CASE ( 'pm10_av_tra' )
+          IF ( .NOT. ALLOCATED( pm10_av_tra ) )  ALLOCATE( pm10_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
+          IF ( k == 1 )  READ ( 13 ) tmp_3d
+          pm10_av_tra(:,nysc-nbgp:nync+nbgp,nxlc-nbgp:nxrc+nbgp) =                                     &
+                                                   tmp_3d(:,nysf-nbgp:nynf+nbgp,nxlf-nbgp:nxrf+nbgp)
+
+       CASE ( 's_mass_av_tra' )
+          IF ( .NOT. ALLOCATED( s_mass_av_tra ) )  THEN
+             ALLOCATE( s_mass_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg,maxspec) )
+          ENDIF
+          DO  ic = 1, maxspec
+             IF ( k == 1 )  READ ( 13 ) tmp_3d
+             s_mass_av_tra(:,nysc-nbgp:nync+nbgp,nxlc-nbgp:nxrc+nbgp,ic) =                             &
+                                                   tmp_3d(:,nysf-nbgp:nynf+nbgp,nxlf-nbgp:nxrf+nbgp)
+          ENDDO
+
        CASE ( 'salsa_gas' )
           IF ( .NOT. salsa_gases_from_chem )  THEN
              DO  ig = 1, ngases_salsa
@@ -3690,10 +3736,82 @@
        CALL rrd_mpi_io( 'pm10_av', pm10_av )
     ENDIF
 
-    CALL rd_mpi_io_check_array( 's_h20_av', found = array_found )
+    CALL rd_mpi_io_check_array( 's_h2o_av', found = array_found )
     IF ( array_found )  THEN
        IF ( .NOT. ALLOCATED( s_h2o_av ) )  ALLOCATE( s_h2o_av(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
        CALL rrd_mpi_io( 's_h2o_av', s_h2o_av )
+    ENDIF
+
+    CALL rd_mpi_io_check_array( 'ldsa_av_tra', found = array_found )
+    IF ( array_found )  THEN
+       IF ( .NOT. ALLOCATED( ldsa_av_tra ) )  ALLOCATE( ldsa_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
+       CALL rrd_mpi_io( 'ldsa_av_tra', ldsa_av_tra )
+    ENDIF
+
+    CALL rd_mpi_io_check_array( 'nufp_av_tra', found = array_found )
+    IF ( array_found )  THEN
+       IF ( .NOT. ALLOCATED( nufp_av_tra ) )  ALLOCATE( nufp_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
+       CALL rrd_mpi_io( 'nufp_av_tra', nufp_av_tra )
+    ENDIF
+
+    CALL rd_mpi_io_check_array( 'ntot_av_tra', found = array_found )
+    IF ( array_found )  THEN
+       IF ( .NOT. ALLOCATED( ntot_av_tra ) )  ALLOCATE( ntot_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
+       CALL rrd_mpi_io( 'ntot_av_tra', ntot_av_tra )
+    ENDIF
+
+    CALL rd_mpi_io_check_array( 'pm01_av_tra', found = array_found )
+    IF ( array_found )  THEN
+       IF ( .NOT. ALLOCATED( pm01_av_tra ) )  ALLOCATE( pm01_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
+       CALL rrd_mpi_io( 'pm01_av_tra', pm01_av_tra )
+    ENDIF
+
+    CALL rd_mpi_io_check_array( 'pm25_av_tra', found = array_found )
+    IF ( array_found )  THEN
+       IF ( .NOT. ALLOCATED( pm25_av_tra ) )  ALLOCATE( pm25_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
+       CALL rrd_mpi_io( 'pm25_av_tra', pm25_av_tra )
+    ENDIF
+
+    CALL rd_mpi_io_check_array( 'pm10_av_tra', found = array_found )
+    IF ( array_found )  THEN
+       IF ( .NOT. ALLOCATED( pm10_av_tra ) )  ALLOCATE( pm10_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg) )
+       CALL rrd_mpi_io( 'pm10_av_tra', pm10_av_tra )
+    ENDIF
+
+    CALL rd_mpi_io_check_array( 'mbins_av_tra_001', found = array_found )
+    IF ( array_found )  THEN
+       IF ( .NOT. ALLOCATED( mbins_av_tra ) )  THEN
+          ALLOCATE( mbins_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg,1:nbins_aerosol) )
+       ENDIF
+       DO  ib = 1, nbins_aerosol
+          WRITE( counter, '(I3.3)')  ib
+          CALL rrd_mpi_io( 'mbins_av_tra_' // counter, tmp_3d )
+          mbins_av_tra(:,:,:,ib) = tmp_3d
+       ENDDO
+    ENDIF
+
+    CALL rd_mpi_io_check_array( 'nbins_av_tra_001', found = array_found )
+    IF ( array_found )  THEN
+       IF ( .NOT. ALLOCATED( nbins_av_tra ) )  THEN
+          ALLOCATE( nbins_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg,1:nbins_aerosol) )
+       ENDIF
+       DO  ib = 1, nbins_aerosol
+          WRITE( counter, '(I3.3)')  ib
+          CALL rrd_mpi_io( 'nbins_av_tra_' // counter, tmp_3d )
+          nbins_av_tra(:,:,:,ib) = tmp_3d
+       ENDDO
+    ENDIF
+
+    CALL rd_mpi_io_check_array( 's_mass_av_tra_001', found = array_found )
+    IF ( array_found )  THEN
+       IF ( .NOT. ALLOCATED( s_mass_av_tra ) )  THEN
+          ALLOCATE( s_mass_av_tra(nzb:nzt+1,nysg:nyng,nxlg:nxrg,1:maxspec) )
+       ENDIF
+       DO  ic = 1, maxspec
+          WRITE( counter, '(I3.3)')  ic
+          CALL rrd_mpi_io( 's_mass_av_tra_' // counter, tmp_3d )
+          s_mass_av_tra(:,:,:,ic) = tmp_3d
+       ENDDO
     ENDIF
 
     CALL rd_mpi_io_check_array( 's_mass_av_001', found = array_found )
@@ -3761,6 +3879,9 @@
         CALL wrd_write_string( 'mass_fracs_b_tra' )
         WRITE ( 14 )  mass_fracs_b_tra
 
+        CALL wrd_write_string( 'reglim' )
+        WRITE ( 14 )  reglim
+
     ELSEIF ( restart_data_format_output(1:3) == 'mpi' )  THEN
 
        DO  i = 1, maxspec
@@ -3775,6 +3896,7 @@
        CALL wrd_mpi_io_global_array( 'mass_fracs_b', mass_fracs_b )
         CALL wrd_mpi_io_global_array( 'mass_fracs_a_tra', mass_fracs_a_tra )
         CALL wrd_mpi_io_global_array( 'mass_fracs_b_tra', mass_fracs_b_tra )
+        CALL wrd_mpi_io_global_array( 'reglim', reglim )
 
     ENDIF
 
@@ -3855,7 +3977,7 @@
           ENDDO
        ENDIF
 
-       IF ( ALLOCATED( ldsa_av ) )  THEN
+       IF ( ALLOCATED( ntot_av ) )  THEN
           CALL wrd_write_string( 'ntot_av' )
           WRITE ( 14 )  ntot_av
        ENDIF
@@ -3890,6 +4012,57 @@
        IF ( ALLOCATED( s_h2o_av ) )  THEN
           CALL wrd_write_string( 's_h2o_av' )
           WRITE ( 14 )  s_h2o_av
+       ENDIF
+
+       IF ( ALLOCATED( ldsa_av_tra ) )  THEN
+          CALL wrd_write_string( 'ldsa_av_tra' )
+          WRITE ( 14 )  ldsa_av_tra
+       ENDIF
+
+       IF ( ALLOCATED( ntot_av_tra ) )  THEN
+          CALL wrd_write_string( 'ntot_av_tra' )
+          WRITE ( 14 )  ntot_av_tra
+       ENDIF
+
+       IF ( ALLOCATED( nufp_av_tra ) )  THEN
+          CALL wrd_write_string( 'nufp_av_tra' )
+          WRITE ( 14 )  nufp_av_tra
+       ENDIF
+
+       IF ( ALLOCATED( pm01_av_tra ) )  THEN
+          CALL wrd_write_string( 'pm01_av_tra' )
+          WRITE ( 14 )  pm01_av_tra
+       ENDIF
+
+       IF ( ALLOCATED( pm25_av_tra ) )  THEN
+          CALL wrd_write_string( 'pm25_av_tra' )
+          WRITE ( 14 )  pm25_av_tra
+       ENDIF
+
+       IF ( ALLOCATED( pm10_av_tra ) )  THEN
+          CALL wrd_write_string( 'pm10_av_tra' )
+          WRITE ( 14 )  pm10_av_tra
+       ENDIF
+
+       IF ( ALLOCATED( mbins_av_tra ) )  THEN
+          CALL wrd_write_string( 'mbins_av_tra' )
+          DO  ib = 1, nbins_aerosol
+             WRITE ( 14 )  mbins_av_tra(:,:,:,ib)
+          ENDDO
+       ENDIF
+
+       IF ( ALLOCATED( nbins_av_tra ) )  THEN
+          CALL wrd_write_string( 'nbins_av_tra' )
+          DO  ib = 1, nbins_aerosol
+             WRITE ( 14 )  nbins_av_tra(:,:,:,ib)
+          ENDDO
+       ENDIF
+
+       IF ( ALLOCATED( s_mass_av_tra ) )  THEN
+          CALL wrd_write_string( 's_mass_av_tra' )
+          DO  ic = 1, maxspec
+             WRITE ( 14 )  s_mass_av_tra(:,:,:,ic)
+          ENDDO
        ENDIF
 
        IF ( .NOT. salsa_gases_from_chem )  THEN
@@ -3965,6 +4138,37 @@
        IF ( ALLOCATED( pm25_av )  )  CALL wrd_mpi_io( 'pm25_av', pm25_av )
        IF ( ALLOCATED( pm10_av )  )  CALL wrd_mpi_io( 'pm10_av', pm10_av )
        IF ( ALLOCATED( s_h2o_av ) )  CALL wrd_mpi_io( 's_h2o_av', s_h2o_av )
+
+       IF ( ALLOCATED( ldsa_av_tra ) )  CALL wrd_mpi_io( 'ldsa_av_tra', ldsa_av_tra )
+       IF ( ALLOCATED( ntot_av_tra ) )  CALL wrd_mpi_io( 'ntot_av_tra', ntot_av_tra )
+       IF ( ALLOCATED( nufp_av_tra ) )  CALL wrd_mpi_io( 'nufp_av_tra', nufp_av_tra )
+       IF ( ALLOCATED( pm01_av_tra ) )  CALL wrd_mpi_io( 'pm01_av_tra', pm01_av_tra )
+       IF ( ALLOCATED( pm25_av_tra ) )  CALL wrd_mpi_io( 'pm25_av_tra', pm25_av_tra )
+       IF ( ALLOCATED( pm10_av_tra ) )  CALL wrd_mpi_io( 'pm10_av_tra', pm10_av_tra )
+
+       IF ( ALLOCATED( mbins_av_tra ) )  THEN
+          DO  ib = 1, nbins_aerosol
+             WRITE( counter, '(I3.3)')  ib
+             tmp_3d = mbins_av_tra(:,:,:,ib)
+             CALL wrd_mpi_io( 'mbins_av_tra_' // counter, tmp_3d )
+          ENDDO
+       ENDIF
+
+       IF ( ALLOCATED( nbins_av_tra ) )  THEN
+          DO  ib = 1, nbins_aerosol
+             WRITE( counter, '(I3.3)')  ib
+             tmp_3d = nbins_av_tra(:,:,:,ib)
+             CALL wrd_mpi_io( 'nbins_av_tra_' // counter, tmp_3d )
+          ENDDO
+       ENDIF
+
+       IF ( ALLOCATED( s_mass_av_tra ) )  THEN
+          DO  ic = 1, maxspec
+             WRITE( counter, '(I3.3)')  ic
+             tmp_3d = s_mass_av_tra(:,:,:,ic)
+             CALL wrd_mpi_io( 's_mass_av_tra_' // counter, tmp_3d )
+          ENDDO
+       ENDIF
 
        IF ( ALLOCATED( s_mass_av ) )  THEN
           DO  ic = 1, ncomponents_mass
