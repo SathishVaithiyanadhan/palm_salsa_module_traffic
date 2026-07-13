@@ -21,7 +21,7 @@
 ! Authors:
 ! --------
 ! @author Mona Kurppa (University of Helsinki)
-!
+! @author Sathish Kumar Vaithiyanadhan (University of Augsburg)
 !
 ! Description:
 ! ------------
@@ -5558,7 +5558,8 @@
  SUBROUTINE depo_surf( i, j, surf, vc, schmidt_num, kvis, mag_u, norm, match_array )
 
     USE arrays_3d,                                                                                 &
-        ONLY:  rho_air_zw
+        ONLY:  ddzw,                                                                               &
+               rho_air_zw
 
     IMPLICIT NONE
 
@@ -5742,10 +5743,18 @@
 !--          Calculate changes in surface fluxes due to dry deposition
              IF ( include_emission )  THEN
                 IF ( is_traffic )  THEN
-                   surf%answs(m,ib) = ( aerosol_number(ib)%source(j,i) +                            &
-                                        aerosol_number_tra(ib)%source(j,i) ) -                       &
-                                        MAX( 0.0_wp, depo_sum(ib) * norm_fac *                       &
-                                             aerosol_number(ib)%conc(k,j,i) )
+                   !
+                   !-- Non-traffic flux: use only non-traffic source
+                   surf%answs(m,ib) = aerosol_number(ib)%source(j,i) -                                &
+                                       MAX( 0.0_wp, depo_sum(ib) * norm_fac *                         &
+                                            aerosol_number(ib)%conc(k,j,i) )
+                   !
+                   !-- Traffic: directly inject traffic source into traffic concentration
+                   IF ( aerosol_number_tra(ib)%source(j,i) > 0.0_wp )  THEN
+                      aerosol_number_tra(ib)%conc(k,j,i) = aerosol_number_tra(ib)%conc(k,j,i) +       &
+                                                           aerosol_number_tra(ib)%source(j,i) *       &
+                                                           dt_salsa * ddzw(k)
+                   ENDIF
                 ELSE
                    surf%answs(m,ib) = aerosol_number(ib)%source(j,i) - MAX( 0.0_wp,                 &
                                       depo_sum(ib) * norm_fac * aerosol_number(ib)%conc(k,j,i) )
@@ -5753,10 +5762,18 @@
                 DO  ic = 1, ncomponents_mass
                    icc = ( ic - 1 ) * nbins_aerosol + ib
                    IF ( is_traffic )  THEN
-                      surf%amsws(m,icc) = ( aerosol_mass(icc)%source(j,i) +                          &
-                                            aerosol_mass_tra(icc)%source(j,i) ) -                     &
-                                            MAX( 0.0_wp, depo_sum(ib) * norm_fac *                    &
-                                                 aerosol_mass(icc)%conc(k,j,i) )
+                      !
+                      !-- Non-traffic mass flux: use only non-traffic source
+                      surf%amsws(m,icc) = aerosol_mass(icc)%source(j,i) -                              &
+                                          MAX( 0.0_wp, depo_sum(ib) * norm_fac *                       &
+                                               aerosol_mass(icc)%conc(k,j,i) )
+                      !
+                      !-- Traffic: directly inject traffic source into traffic mass concentration
+                      IF ( aerosol_mass_tra(icc)%source(j,i) > 0.0_wp )  THEN
+                         aerosol_mass_tra(icc)%conc(k,j,i) = aerosol_mass_tra(icc)%conc(k,j,i) +       &
+                                                             aerosol_mass_tra(icc)%source(j,i) *       &
+                                                             dt_salsa * ddzw(k)
+                      ENDIF
                    ELSE
                       surf%amsws(m,icc) = aerosol_mass(icc)%source(j,i) - MAX( 0.0_wp,              &
                                           depo_sum(ib) *  norm_fac * aerosol_mass(icc)%conc(k,j,i) )
@@ -5801,10 +5818,18 @@
 !--          Calculate changes in surface fluxes due to dry deposition
              IF ( include_emission )  THEN
                 IF ( is_traffic )  THEN
-                   surf%answs(m,ib) = ( aerosol_number(ib)%source(j,i) +                            &
-                                        aerosol_number_tra(ib)%source(j,i) ) -                       &
-                                        MAX( 0.0_wp, depo(ib) * norm_fac *                          &
-                                             aerosol_number(ib)%conc(k,j,i) )
+                   !
+                   !-- Non-traffic flux: use only non-traffic source
+                   surf%answs(m,ib) = aerosol_number(ib)%source(j,i) -                                &
+                                       MAX( 0.0_wp, depo(ib) * norm_fac *                            &
+                                            aerosol_number(ib)%conc(k,j,i) )
+                   !
+                   !-- Traffic: directly inject traffic source into traffic concentration
+                   IF ( aerosol_number_tra(ib)%source(j,i) > 0.0_wp )  THEN
+                      aerosol_number_tra(ib)%conc(k,j,i) = aerosol_number_tra(ib)%conc(k,j,i) +       &
+                                                           aerosol_number_tra(ib)%source(j,i) *       &
+                                                           dt_salsa * ddzw(k)
+                   ENDIF
                 ELSE
                    surf%answs(m,ib) = aerosol_number(ib)%source(j,i) - MAX( 0.0_wp,                 &
                                       depo(ib) * norm_fac * aerosol_number(ib)%conc(k,j,i) )
@@ -5812,10 +5837,18 @@
                 DO  ic = 1, ncomponents_mass
                    icc = ( ic - 1 ) * nbins_aerosol + ib
                    IF ( is_traffic )  THEN
-                      surf%amsws(m,icc) = ( aerosol_mass(icc)%source(j,i) +                          &
-                                            aerosol_mass_tra(icc)%source(j,i) ) -                     &
-                                            MAX( 0.0_wp, depo(ib) * norm_fac *                       &
-                                                 aerosol_mass(icc)%conc(k,j,i) )
+                      !
+                      !-- Non-traffic mass flux: use only non-traffic source
+                      surf%amsws(m,icc) = aerosol_mass(icc)%source(j,i) -                              &
+                                          MAX( 0.0_wp, depo(ib) * norm_fac *                          &
+                                               aerosol_mass(icc)%conc(k,j,i) )
+                      !
+                      !-- Traffic: directly inject traffic source into traffic mass concentration
+                      IF ( aerosol_mass_tra(icc)%source(j,i) > 0.0_wp )  THEN
+                         aerosol_mass_tra(icc)%conc(k,j,i) = aerosol_mass_tra(icc)%conc(k,j,i) +       &
+                                                             aerosol_mass_tra(icc)%source(j,i) *       &
+                                                             dt_salsa * ddzw(k)
+                      ENDIF
                    ELSE
                       surf%amsws(m,icc) = aerosol_mass(icc)%source(j,i) - MAX( 0.0_wp,              &
                                           depo(ib) *  norm_fac * aerosol_mass(icc)%conc(k,j,i) )
