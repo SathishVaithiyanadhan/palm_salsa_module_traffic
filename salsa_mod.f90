@@ -741,8 +741,17 @@
 !
 !-- Diagnostic tracers
     REAL(wp), DIMENSION(:,:), ALLOCATABLE ::  sedim_vd  !< sedimentation velocity per bin (m/s)
-    REAL(wp), DIMENSION(:,:), ALLOCATABLE ::  tra_answs  !< traffic number flux per surface element
-    REAL(wp), DIMENSION(:,:), ALLOCATABLE ::  tra_amsws  !< traffic mass flux per surface element
+!
+!-- Traffic (pop=2) surface flux arrays for diffusion calls
+!-- These are filled with traffic source - deposition flux in depo_surf
+    REAL(wp), DIMENSION(:,:), ALLOCATABLE, TARGET ::  zero_answs_def
+    REAL(wp), DIMENSION(:,:), ALLOCATABLE, TARGET ::  zero_answs_lsm
+    REAL(wp), DIMENSION(:,:), ALLOCATABLE, TARGET ::  zero_answs_usm
+    REAL(wp), DIMENSION(:,:), ALLOCATABLE, TARGET ::  zero_answs_top
+    REAL(wp), DIMENSION(:,:), ALLOCATABLE, TARGET ::  zero_amsws_def
+    REAL(wp), DIMENSION(:,:), ALLOCATABLE, TARGET ::  zero_amsws_lsm
+    REAL(wp), DIMENSION(:,:), ALLOCATABLE, TARGET ::  zero_amsws_usm
+    REAL(wp), DIMENSION(:,:), ALLOCATABLE, TARGET ::  zero_amsws_top
 
     REAL(wp), DIMENSION(:,:,:,:), ALLOCATABLE ::  ra_dry    !< aerosol dry radius (m)
 
@@ -1585,11 +1594,27 @@
               bc_an_t_val(nbins_aerosol), bc_gt_t_val(ngases_salsa), bin_low_limits(nbins_aerosol),&
               nsect(nbins_aerosol), massacc(nbins_aerosol) )
     IF ( nldepo ) ALLOCATE( sedim_vd(nzb:nzt+1,nbins_aerosol) )
-    ALLOCATE( tra_answs(1:10000,nbins_aerosol) )
-    ALLOCATE( tra_amsws(1:10000,nbins_aerosol*ncomponents_mass) )
-    tra_answs = 0.0_wp
-    tra_amsws = 0.0_wp
     ALLOCATE( ra_dry(nzb:nzt+1,nysg:nyng,nxlg:nxrg,nbins_aerosol) )
+!
+!-- Allocate zero surface flux arrays for traffic (pop=2) if dual-population mode is active
+    IF ( is_traffic )  THEN
+       ALLOCATE( zero_answs_def(1:surf_def%ns,1:nbins_aerosol) )
+       ALLOCATE( zero_answs_lsm(1:surf_lsm%ns,1:nbins_aerosol) )
+       ALLOCATE( zero_answs_usm(1:surf_usm%ns,1:nbins_aerosol) )
+       ALLOCATE( zero_answs_top(1:surf_top%ns,1:nbins_aerosol) )
+       ALLOCATE( zero_amsws_def(1:surf_def%ns,1:nbins_aerosol*ncomponents_mass) )
+       ALLOCATE( zero_amsws_lsm(1:surf_lsm%ns,1:nbins_aerosol*ncomponents_mass) )
+       ALLOCATE( zero_amsws_usm(1:surf_usm%ns,1:nbins_aerosol*ncomponents_mass) )
+       ALLOCATE( zero_amsws_top(1:surf_top%ns,1:nbins_aerosol*ncomponents_mass) )
+       zero_answs_def = 0.0_wp
+       zero_answs_lsm = 0.0_wp
+       zero_answs_usm = 0.0_wp
+       zero_answs_top = 0.0_wp
+       zero_amsws_def = 0.0_wp
+       zero_amsws_lsm = 0.0_wp
+       zero_amsws_usm = 0.0_wp
+       zero_amsws_top = 0.0_wp
+    ENDIF
 !
 !-- Set number of populations based on traffic tracking
     npop = MERGE( 2, 1, is_traffic )
@@ -2146,9 +2171,6 @@
     REAL(wp), DIMENSION(0:nz+1,nbins_aerosol)   ::  pndist  !< vertical profile of size dist. (#/m3)
     REAL(wp), DIMENSION(0:nz+1,maxspec)         ::  pmf2a   !< mass distributions in subrange 2a
     REAL(wp), DIMENSION(0:nz+1,maxspec)         ::  pmf2b   !< mass distributions in subrange 2b
-    REAL(wp), DIMENSION(:,:), ALLOCATABLE       ::  pmf2a_tra  !< traffic mass distributions in subrange 2a
-    REAL(wp), DIMENSION(:,:), ALLOCATABLE       ::  pmf2b_tra  !< traffic mass distributions in subrange 2b
-
     REAL(wp), DIMENSION(:), ALLOCATABLE ::  pr_dmid  !< vertical profile of aerosol bin diameters
 
     REAL(wp), DIMENSION(:,:), ALLOCATABLE ::  pr_mass_fracs_a  !< mass fraction: a
@@ -2679,155 +2701,28 @@
     IF ( is_traffic )  THEN
     IF ( .NOT. read_restart_data_salsa )  THEN
 !
-!--    Build traffic mass fraction arrays for subrange 2 from mass_fracs_a_tra
-       ALLOCATE( pmf2a_tra(0:nz+1,maxspec), pmf2b_tra(0:nz+1,maxspec) )
-       pmf2a_tra = 0.0_wp
-       pmf2b_tra = 0.0_wp
-
-       IF ( index_so4 > 0 )  THEN
-          pmf2a_tra(:,1) = mass_fracs_a_tra(index_so4)
-          pmf2b_tra(:,1) = mass_fracs_b_tra(index_so4)
-       ENDIF
-       IF ( index_oc > 0 )  THEN
-          pmf2a_tra(:,2) = mass_fracs_a_tra(index_oc)
-          pmf2b_tra(:,2) = mass_fracs_b_tra(index_oc)
-       ENDIF
-       IF ( index_bc > 0 )  THEN
-          pmf2a_tra(:,3) = mass_fracs_a_tra(index_bc)
-          pmf2b_tra(:,3) = mass_fracs_b_tra(index_bc)
-       ENDIF
-       IF ( index_du > 0 )  THEN
-          pmf2a_tra(:,4) = mass_fracs_a_tra(index_du)
-          pmf2b_tra(:,4) = mass_fracs_b_tra(index_du)
-       ENDIF
-       IF ( index_ss > 0 )  THEN
-          pmf2a_tra(:,5) = mass_fracs_a_tra(index_ss)
-          pmf2b_tra(:,5) = mass_fracs_b_tra(index_ss)
-       ENDIF
-       IF ( index_no > 0 )  THEN
-          pmf2a_tra(:,6) = mass_fracs_a_tra(index_no)
-          pmf2b_tra(:,6) = mass_fracs_b_tra(index_no)
-       ENDIF
-       IF ( index_nh > 0 )  THEN
-          pmf2a_tra(:,7) = mass_fracs_a_tra(index_nh)
-          pmf2b_tra(:,7) = mass_fracs_b_tra(index_nh)
-       ENDIF
-       IF ( index_pb > 0 )  THEN
-          pmf2a_tra(:,8) = mass_fracs_a_tra(index_pb)
-          pmf2b_tra(:,8) = mass_fracs_b_tra(index_pb)
-       ENDIF
-       IF ( index_hg > 0 )  THEN
-          pmf2a_tra(:,9) = mass_fracs_a_tra(index_hg)
-          pmf2b_tra(:,9) = mass_fracs_b_tra(index_hg)
-       ENDIF
-       IF ( index_ni > 0 )  THEN
-          pmf2a_tra(:,10) = mass_fracs_a_tra(index_ni)
-          pmf2b_tra(:,10) = mass_fracs_b_tra(index_ni)
-       ENDIF
-       IF ( index_cd > 0 )  THEN
-          pmf2a_tra(:,11) = mass_fracs_a_tra(index_cd)
-          pmf2b_tra(:,11) = mass_fracs_b_tra(index_cd)
-       ENDIF
-       IF ( index_as > 0 )  THEN
-          pmf2a_tra(:,12) = mass_fracs_a_tra(index_as)
-          pmf2b_tra(:,12) = mass_fracs_b_tra(index_as)
-       ENDIF
-!
-       DO  k = nzb, nzt+1
-          IF ( SUM( pmf2a_tra(k,:) ) > 0.0_wp )  pmf2a_tra(k,:) = pmf2a_tra(k,:) / SUM( pmf2a_tra(k,:) )
-          IF ( SUM( pmf2b_tra(k,:) ) > 0.0_wp )  pmf2b_tra(k,:) = pmf2b_tra(k,:) / SUM( pmf2b_tra(k,:) )
-       ENDDO
-
-!
-!--    Initialize traffic number and mass concentrations
+!--    Initialize traffic number and mass concentrations to near-zero
+!--    Traffic (pop=2) starts from clean background; only emissions build up
        DO  i = nxlg, nxrg
           DO  j = nysg, nyng
              DO  k = nzb, nzt+1
 !
                 flag = MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 0 ) )
 !
-!--             Traffic number concentrations (same size distribution as non-traffic)
-                DO  ib = start_subrange_1a, end_subrange_1a
-                   aerosol_number_tra(ib)%conc(k,j,i) = pndist(k,ib) * flag
-                   aerosol_number_tra(ib)%init(k) = pndist(k,ib)
+!--             Traffic number concentrations start from near-zero
+                DO  ib = 1, nbins_aerosol
+                   aerosol_number_tra(ib)%conc(k,j,i) = nclim * flag
+                   aerosol_number_tra(ib)%init(k) = nclim
                 ENDDO
-                IF ( nreg > 1 )  THEN
-                   DO  ib = start_subrange_2a, end_subrange_2a
-                      aerosol_number_tra(ib)%conc(k,j,i) = MAX( 0.0_wp, pnf2a(k) ) * pndist(k,ib) * flag
-                      aerosol_number_tra(ib)%init(k) = MAX( 0.0_wp, nf2a ) * pndist(k,ib)
-                   ENDDO
-                   IF ( .NOT. no_insoluble )  THEN
-                      DO  ib = start_subrange_2b, end_subrange_2b
-                         IF ( pnf2a(k) < 1.0_wp )  THEN
-                            aerosol_number_tra(ib)%conc(k,j,i) = MAX( 0.0_wp, 1.0_wp - pnf2a(k) ) * &
-                                                                 pndist(k,ib) * flag
-                            aerosol_number_tra(ib)%init(k) = MAX( 0.0_wp, 1.0_wp - nf2a ) * pndist(k,ib)
-                         ENDIF
-                      ENDDO
-                   ENDIF
-                ENDIF
 !
-!--             Traffic mass concentrations - subrange 1 (SO4)
-                IF ( index_so4 > 0 )  THEN
-                   ss = ( index_so4 - 1 ) * nbins_aerosol + start_subrange_1a
-                   ee = ( index_so4 - 1 ) * nbins_aerosol + end_subrange_1a
-                   ib = start_subrange_1a
-                   DO  ic = ss, ee
-                      aerosol_mass_tra(ic)%conc(k,j,i) = MAX( 0.0_wp, 1.0_wp - pmfoc1a(k) ) *       &
-                                                         pndist(k,ib) * core(ib) * arhoh2so4 * flag
-                      aerosol_mass_tra(ic)%init(k) = MAX( 0.0_wp, 1.0_wp - pmfoc1a(k) ) *           &
-                                                     pndist(k,ib) * core(ib) * arhoh2so4
-                      ib = ib + 1
-                   ENDDO
-                ENDIF
-!
-!--             Traffic mass concentrations - subrange 1 (OC)
-                IF ( index_oc > 0 )  THEN
-                   ss = ( index_oc - 1 ) * nbins_aerosol + start_subrange_1a
-                   ee = ( index_oc - 1 ) * nbins_aerosol + end_subrange_1a
-                   ib = start_subrange_1a
-                   DO  ic = ss, ee
-                      aerosol_mass_tra(ic)%conc(k,j,i) = MAX( 0.0_wp, pmfoc1a(k) ) * pndist(k,ib) * &
-                                                         core(ib) * arhooc * flag
-                      aerosol_mass_tra(ic)%init(k) = MAX( 0.0_wp, pmfoc1a(k) ) * pndist(k,ib) *     &
-                                                     core(ib) * arhooc
-                      ib = ib + 1
-                   ENDDO
-                ENDIF
+!--             Traffic mass concentrations start from near-zero for all bins/species
+                DO  ic = 1, ncomponents_mass * nbins_aerosol
+                   aerosol_mass_tra(ic)%conc(k,j,i) = mclim * flag
+                   aerosol_mass_tra(ic)%init(k) = mclim
+                ENDDO
              ENDDO  !< k
           ENDDO  !< j
        ENDDO  !< i
-
-!
-!--    Traffic mass concentrations - subrange 2 (using traffic mass fractions)
-       IF ( nreg > 1 )  THEN
-          IF ( index_so4 > 0 )  CALL set_aero_mass( index_so4, pmf2a_tra(:,1), pmf2b_tra(:,1),      &
-                                                    pnf2a, pndist, core, arhoh2so4, traffic=.TRUE. )
-          IF ( index_oc > 0 )  CALL set_aero_mass( index_oc, pmf2a_tra(:,2), pmf2b_tra(:,2),        &
-                                                    pnf2a, pndist, core, arhooc, traffic=.TRUE. )
-          IF ( index_bc > 0 )  CALL set_aero_mass( index_bc, pmf2a_tra(:,3), pmf2b_tra(:,3),        &
-                                                    pnf2a, pndist, core, arhobc, traffic=.TRUE. )
-          IF ( index_du > 0 )  CALL set_aero_mass( index_du, pmf2a_tra(:,4), pmf2b_tra(:,4),        &
-                                                    pnf2a, pndist, core, arhodu, traffic=.TRUE. )
-          IF ( index_ss > 0 )  CALL set_aero_mass( index_ss, pmf2a_tra(:,5), pmf2b_tra(:,5),        &
-                                                    pnf2a, pndist, core, arhoss, traffic=.TRUE. )
-          IF ( index_no > 0 )  CALL set_aero_mass( index_no, pmf2a_tra(:,6), pmf2b_tra(:,6),        &
-                                                    pnf2a, pndist, core, arhohno3, traffic=.TRUE. )
-          IF ( index_nh > 0 )  CALL set_aero_mass( index_nh, pmf2a_tra(:,7), pmf2b_tra(:,7),        &
-                                                    pnf2a, pndist, core, arhonh3, traffic=.TRUE. )
-          IF ( index_pb > 0 )  CALL set_aero_mass( index_pb, pmf2a_tra(:,8), pmf2b_tra(:,8),        &
-                                                    pnf2a, pndist, core, arhopb, traffic=.TRUE. )
-          IF ( index_hg > 0 )  CALL set_aero_mass( index_hg, pmf2a_tra(:,9), pmf2b_tra(:,9),        &
-                                                    pnf2a, pndist, core, arhohg, traffic=.TRUE. )
-          IF ( index_ni > 0 )  CALL set_aero_mass( index_ni, pmf2a_tra(:,10), pmf2b_tra(:,10),      &
-                                                    pnf2a, pndist, core, arhoni, traffic=.TRUE. )
-          IF ( index_cd > 0 )  CALL set_aero_mass( index_cd, pmf2a_tra(:,11), pmf2b_tra(:,11),      &
-                                                    pnf2a, pndist, core, arhocd, traffic=.TRUE. )
-          IF ( index_as > 0 )  CALL set_aero_mass( index_as, pmf2a_tra(:,12), pmf2b_tra(:,12),      &
-                                                    pnf2a, pndist, core, arhoas, traffic=.TRUE. )
-       ENDIF
-
-       DEALLOCATE( pmf2a_tra, pmf2b_tra )
 
     ENDIF  ! read_restart_data_salsa
     ENDIF  ! is_traffic
@@ -4913,10 +4808,10 @@
 !-- Set surfaces and wall fluxes due to deposition
     IF ( lsdepo  .AND.  lsdepo_surf  .AND.  prunmode == 3 )  THEN
        IF ( .NOT. land_surface  .AND.  .NOT. urban_surface )  THEN
-          CALL depo_surf( i, j, surf_def, vd, schmidt_num, kvis, in_u, .TRUE. )
+          CALL depo_surf( i, j, surf_def, vd, schmidt_num, kvis, in_u, .TRUE., surf_id=0 )
        ELSE
-          CALL depo_surf( i, j, surf_usm, vd, schmidt_num, kvis, in_u, .TRUE., usm_to_depo )
-          CALL depo_surf( i, j, surf_lsm, vd, schmidt_num, kvis, in_u, .TRUE., lsm_to_depo )
+          CALL depo_surf( i, j, surf_usm, vd, schmidt_num, kvis, in_u, .TRUE., usm_to_depo, surf_id=2 )
+          CALL depo_surf( i, j, surf_lsm, vd, schmidt_num, kvis, in_u, .TRUE., lsm_to_depo, surf_id=1 )
        ENDIF
     ENDIF
 
@@ -5555,7 +5450,7 @@
 !> @todo aerodynamic resistance ignored for now (not important for
 !        high-resolution simulations)
 !--------------------------------------------------------------------------------------------------!
- SUBROUTINE depo_surf( i, j, surf, vc, schmidt_num, kvis, mag_u, norm, match_array )
+ SUBROUTINE depo_surf( i, j, surf, vc, schmidt_num, kvis, mag_u, norm, match_array, surf_id )
 
     USE arrays_3d,                                                                                 &
         ONLY:  ddzw,                                                                               &
@@ -5602,6 +5497,8 @@
 
     REAL(wp), DIMENSION(:,:), INTENT(in) ::  schmidt_num   !< particle Schmidt number
     REAL(wp), DIMENSION(:,:), INTENT(in) ::  vc            !< terminal velocity (m/s)
+
+    INTEGER(iwp), INTENT(in), OPTIONAL ::  surf_id  !< surface type: 0=def, 1=lsm, 2=usm
 
     TYPE(match_surface), INTENT(in), OPTIONAL ::  match_array  !< match the deposition module and
                                                                !< LSM/USM surfaces
@@ -5749,11 +5646,27 @@
                                        MAX( 0.0_wp, depo_sum(ib) * norm_fac *                         &
                                             aerosol_number(ib)%conc(k,j,i) )
                    !
-                   !-- Traffic: directly inject traffic source into traffic concentration
-                   IF ( aerosol_number_tra(ib)%source(j,i) > 0.0_wp )  THEN
-                      aerosol_number_tra(ib)%conc(k,j,i) = aerosol_number_tra(ib)%conc(k,j,i) +       &
-                                                           aerosol_number_tra(ib)%source(j,i) *       &
-                                                           dt_salsa * ddzw(k)
+                   !-- Traffic flux: use traffic source with proper surface flux BC
+                   !-- (handled by diffusion_s with zero_answs arrays)
+                   !-- Route to correct surface type array via surf_id
+                   IF ( PRESENT( surf_id ) )  THEN
+                      IF ( surf_id == 1 )  THEN
+                         zero_answs_lsm(m,ib) = aerosol_number_tra(ib)%source(j,i) -                     &
+                                                MAX( 0.0_wp, depo_sum(ib) * norm_fac *                  &
+                                                     aerosol_number_tra(ib)%conc(k,j,i) )
+                      ELSEIF ( surf_id == 2 )  THEN
+                         zero_answs_usm(m,ib) = aerosol_number_tra(ib)%source(j,i) -                     &
+                                                MAX( 0.0_wp, depo_sum(ib) * norm_fac *                  &
+                                                     aerosol_number_tra(ib)%conc(k,j,i) )
+                      ELSE
+                         zero_answs_def(m,ib) = aerosol_number_tra(ib)%source(j,i) -                     &
+                                                MAX( 0.0_wp, depo_sum(ib) * norm_fac *                  &
+                                                     aerosol_number_tra(ib)%conc(k,j,i) )
+                      ENDIF
+                   ELSE
+                      zero_answs_def(m,ib) = aerosol_number_tra(ib)%source(j,i) -                       &
+                                             MAX( 0.0_wp, depo_sum(ib) * norm_fac *                    &
+                                                  aerosol_number_tra(ib)%conc(k,j,i) )
                    ENDIF
                 ELSE
                    surf%answs(m,ib) = aerosol_number(ib)%source(j,i) - MAX( 0.0_wp,                 &
@@ -5768,11 +5681,26 @@
                                           MAX( 0.0_wp, depo_sum(ib) * norm_fac *                       &
                                                aerosol_mass(icc)%conc(k,j,i) )
                       !
-                      !-- Traffic: directly inject traffic source into traffic mass concentration
-                      IF ( aerosol_mass_tra(icc)%source(j,i) > 0.0_wp )  THEN
-                         aerosol_mass_tra(icc)%conc(k,j,i) = aerosol_mass_tra(icc)%conc(k,j,i) +       &
-                                                             aerosol_mass_tra(icc)%source(j,i) *       &
-                                                             dt_salsa * ddzw(k)
+                      !-- Traffic mass flux: use traffic source with proper surface flux BC
+                      !-- Route to correct surface type array via surf_id
+                      IF ( PRESENT( surf_id ) )  THEN
+                         IF ( surf_id == 1 )  THEN
+                            zero_amsws_lsm(m,icc) = aerosol_mass_tra(icc)%source(j,i) -                   &
+                                                    MAX( 0.0_wp, depo_sum(ib) * norm_fac *                &
+                                                         aerosol_mass_tra(icc)%conc(k,j,i) )
+                         ELSEIF ( surf_id == 2 )  THEN
+                            zero_amsws_usm(m,icc) = aerosol_mass_tra(icc)%source(j,i) -                   &
+                                                    MAX( 0.0_wp, depo_sum(ib) * norm_fac *                &
+                                                         aerosol_mass_tra(icc)%conc(k,j,i) )
+                         ELSE
+                            zero_amsws_def(m,icc) = aerosol_mass_tra(icc)%source(j,i) -                   &
+                                                    MAX( 0.0_wp, depo_sum(ib) * norm_fac *                &
+                                                         aerosol_mass_tra(icc)%conc(k,j,i) )
+                         ENDIF
+                      ELSE
+                         zero_amsws_def(m,icc) = aerosol_mass_tra(icc)%source(j,i) -                     &
+                                                 MAX( 0.0_wp, depo_sum(ib) * norm_fac *                  &
+                                                      aerosol_mass_tra(icc)%conc(k,j,i) )
                       ENDIF
                    ELSE
                       surf%amsws(m,icc) = aerosol_mass(icc)%source(j,i) - MAX( 0.0_wp,              &
@@ -5824,12 +5752,11 @@
                                        MAX( 0.0_wp, depo(ib) * norm_fac *                            &
                                             aerosol_number(ib)%conc(k,j,i) )
                    !
-                   !-- Traffic: directly inject traffic source into traffic concentration
-                   IF ( aerosol_number_tra(ib)%source(j,i) > 0.0_wp )  THEN
-                      aerosol_number_tra(ib)%conc(k,j,i) = aerosol_number_tra(ib)%conc(k,j,i) +       &
-                                                           aerosol_number_tra(ib)%source(j,i) *       &
-                                                           dt_salsa * ddzw(k)
-                   ENDIF
+                   !-- Traffic flux: use traffic source with proper surface flux BC
+                   !-- (handled by diffusion_s with zero_answs arrays)
+                   zero_answs_def(m,ib) = aerosol_number_tra(ib)%source(j,i) -                        &
+                                          MAX( 0.0_wp, depo(ib) * norm_fac *                         &
+                                               aerosol_number_tra(ib)%conc(k,j,i) )
                 ELSE
                    surf%answs(m,ib) = aerosol_number(ib)%source(j,i) - MAX( 0.0_wp,                 &
                                       depo(ib) * norm_fac * aerosol_number(ib)%conc(k,j,i) )
@@ -5843,12 +5770,10 @@
                                           MAX( 0.0_wp, depo(ib) * norm_fac *                          &
                                                aerosol_mass(icc)%conc(k,j,i) )
                       !
-                      !-- Traffic: directly inject traffic source into traffic mass concentration
-                      IF ( aerosol_mass_tra(icc)%source(j,i) > 0.0_wp )  THEN
-                         aerosol_mass_tra(icc)%conc(k,j,i) = aerosol_mass_tra(icc)%conc(k,j,i) +       &
-                                                             aerosol_mass_tra(icc)%source(j,i) *       &
-                                                             dt_salsa * ddzw(k)
-                      ENDIF
+                      !-- Traffic mass flux: use traffic source with proper surface flux BC
+                      zero_amsws_def(m,icc) = aerosol_mass_tra(icc)%source(j,i) -                      &
+                                              MAX( 0.0_wp, depo(ib) * norm_fac *                       &
+                                                   aerosol_mass_tra(icc)%conc(k,j,i) )
                    ELSE
                       surf%amsws(m,icc) = aerosol_mass(icc)%source(j,i) - MAX( 0.0_wp,              &
                                           depo(ib) *  norm_fac * aerosol_mass(icc)%conc(k,j,i) )
@@ -9806,26 +9731,18 @@
           CALL diffusion_s( i, j, rs, surf_top%answs(:,ib), surf_def%answs(:,ib),                  &
                             surf_lsm%answs(:,ib), surf_usm%answs(:,ib) )
        CASE ( 'aerosol_number_tra' )
-          CALL diffusion_s( i, j, rs, surf_top%answs(:,ib), surf_def%answs(:,ib),                  &
-                            surf_lsm%answs(:,ib), surf_usm%answs(:,ib) )
 !
-!--      Also apply traffic number flux
-          DO  k = nzb+1, nzt
-             tend(k,j,i) = tend(k,j,i) + tra_answs(ib,ib) * ddzw(k) *                              &
-                            MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 0 ) )
-          ENDDO
+!--       Traffic: use traffic surface flux arrays (pop=2), with per-bin flux
+          CALL diffusion_s( i, j, rs, zero_answs_top(:,ib), zero_answs_def(:,ib),                   &
+                            zero_answs_lsm(:,ib), zero_answs_usm(:,ib) )
        CASE ( 'aerosol_mass' )
           CALL diffusion_s( i, j, rs, surf_top%amsws(:,icc), surf_def%amsws(:,icc),                &
                             surf_lsm%amsws(:,icc), surf_usm%amsws(:,icc) )
        CASE ( 'aerosol_mass_tra' )
-          CALL diffusion_s( i, j, rs, surf_top%amsws(:,icc), surf_def%amsws(:,icc),                &
-                            surf_lsm%amsws(:,icc), surf_usm%amsws(:,icc) )
 !
-!--      Also apply traffic mass flux
-          DO  k = nzb+1, nzt
-             tend(k,j,i) = tend(k,j,i) + tra_amsws(icc,icc) * ddzw(k) *                            &
-                            MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 0 ) )
-          ENDDO
+!--       Traffic: use traffic surface flux arrays (pop=2), with per-bin flux
+          CALL diffusion_s( i, j, rs, zero_amsws_top(:,icc), zero_amsws_def(:,icc),                 &
+                            zero_amsws_lsm(:,icc), zero_amsws_usm(:,icc) )
        CASE ( 'salsa_gas' )
           CALL diffusion_s( i, j, rs, surf_top%gtsws(:,ib), surf_def%gtsws(:,ib),                  &
                             surf_lsm%gtsws(:,ib), surf_usm%gtsws(:,ib) )
@@ -9957,14 +9874,18 @@
           CALL diffusion_s( rs, surf_top%answs(:,ib), surf_def%answs(:,ib), surf_lsm%answs(:,ib),  &
                             surf_usm%answs(:,ib) )
        CASE ( 'aerosol_number_tra' )
-          CALL diffusion_s( rs, surf_top%answs(:,ib), surf_def%answs(:,ib), surf_lsm%answs(:,ib),  &
-                            surf_usm%answs(:,ib) )
+!
+!--       Traffic: use traffic surface flux arrays (pop=2), with per-bin flux
+          CALL diffusion_s( rs, zero_answs_top(:,ib), zero_answs_def(:,ib),                         &
+                            zero_answs_lsm(:,ib), zero_answs_usm(:,ib) )
        CASE ( 'aerosol_mass' )
           CALL diffusion_s( rs, surf_top%amsws(:,icc), surf_def%amsws(:,icc),                      &
                             surf_lsm%amsws(:,icc), surf_usm%amsws(:,icc) )
        CASE ( 'aerosol_mass_tra' )
-          CALL diffusion_s( rs, surf_top%amsws(:,icc), surf_def%amsws(:,icc),                      &
-                            surf_lsm%amsws(:,icc), surf_usm%amsws(:,icc) )
+!
+!--       Traffic: use traffic surface flux arrays (pop=2), with per-bin flux
+          CALL diffusion_s( rs, zero_amsws_top(:,icc), zero_amsws_def(:,icc),                       &
+                            zero_amsws_lsm(:,icc), zero_amsws_usm(:,icc) )
        CASE ( 'salsa_gas' )
           CALL diffusion_s( rs, surf_top%gtsws(:,ib), surf_def%gtsws(:,ib), surf_lsm%gtsws(:,ib),  &
                             surf_usm%gtsws(:,ib) )
@@ -11880,7 +11801,7 @@
        REAL(wp), INTENT(in) ::  nsource      !< number source (#/m2/s)
        REAL(wp), INTENT(in) ::  prho         !< Aerosol density
 
-       TYPE(surf_type), INTENT(inout) ::  surface  !< respective surface type
+       TYPE(surf_type), INTENT(inout), TARGET ::  surface  !< respective surface type
 
 
        ltraffic = .FALSE.
