@@ -474,6 +474,12 @@
              (/0.04, 0.48, 0.48, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0/)  !< traffic exhaust composition
     REAL(wp), DIMENSION(maxspec) ::  mass_fracs_b_tra = &  !< mass fractions for traffic B bins
              (/0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0/)     !< traffic insoluble = zero
+!
+!-- Actual mass fractions in use (may be from namelist or dynamic driver)
+    REAL(wp), DIMENSION(maxspec) ::  used_mass_fracs_a = &
+             (/1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0/)     !< a-bins mass fractions
+    REAL(wp), DIMENSION(maxspec) ::  used_mass_fracs_b = &
+             (/0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0/)     !< b-bins mass fractions
     REAL(wp), DIMENSION(nreg+1) ::  reglim = &         !< Min&max diameters of size subranges
                                  (/ 3.0E-9_wp, 5.0E-8_wp, 1.0E-5_wp/)
 !
@@ -1371,8 +1377,14 @@
     WRITE( io, 13 )  reglim, nbin, ( aero(:)%vlolim / api6 )**0.33333333_wp
     WRITE( io, 25 )  aero(:)%dmid
     IF ( init_aerosol_type == 0 )  WRITE( io, 14 ) nsect
-    WRITE( io, 15 ) ncc, listspec, mass_fracs_a, mass_fracs_b
-    WRITE( io, 151 ) mass_fracs_a_tra, mass_fracs_b_tra
+    IF ( init_aerosol_type == 0 )  THEN
+       WRITE( io, 15 ) ncc, listspec, mass_fracs_a, mass_fracs_b
+    ELSE
+       WRITE( io, 152 ) ncc, listspec, used_mass_fracs_a, used_mass_fracs_b
+    ENDIF
+    IF ( is_traffic )  THEN
+       WRITE( io, 151 ) mass_fracs_a_tra, mass_fracs_b_tra
+    ENDIF
     IF ( .NOT. salsa_gases_from_chem )  THEN
        WRITE( io, 16 ) ngases_salsa, h2so4_init, hno3_init, nh3_init, ocnv_init, ocsv_init
        WRITE( io, 161 ) h2so4_tra_init, hno3_tra_init, nh3_tra_init, ocnv_tra_init, ocsv_tra_init
@@ -1431,11 +1443,16 @@
 15  FORMAT (/'    Number of chemical components used: ', I1,/                                      &
              '       Species: ',12(A6),/                                                            &
              '    Initial relative contribution of each species to particle volume in:',/          &
-             '       a-bins: ', 12(F6.3),/                                                          &
-             '       b-bins: ', 12(F6.3))
+             '       a-bins: ', 12(F10.7),/                                                         &
+             '       b-bins: ', 12(F10.7))
 151 FORMAT (/'    Traffic (pop=2) relative contribution of each species to particle volume in:',/   &
-             '       a-bins: ', 12(F6.3),/                                                          &
-             '       b-bins: ', 12(F6.3))
+             '       a-bins: ', 12(F10.7),/                                                         &
+             '       b-bins: ', 12(F10.7))
+152 FORMAT (/'    Number of chemical components used: ', I1,/                                      &
+             '       Species: ',12(A6),/                                                            &
+             '    Initial mass fractions (from dynamic driver, surface level):',/                  &
+             '       a-bins: ', 12(F10.7),/                                                         &
+             '       b-bins: ', 12(F10.7))
 16  FORMAT (/'    Number of gaseous tracers used: ', I1,/                                          &
              '    Initial gas concentrations:',/                                                   &
              '       H2SO4: ',ES12.4E3, ' #/m**3',/                                                &
@@ -2293,6 +2310,10 @@
           WHERE ( pmf2b /= pmf2b )  pmf2b = 0.0_wp
           pmf2a = MAX( pmf2a, 0.0_wp )
           pmf2b = MAX( pmf2b, 0.0_wp )
+!
+!--       Store surface-level mass fractions for header output
+          used_mass_fracs_a(:) = pmf2a(nzb+1,:)
+          used_mass_fracs_b(:) = pmf2b(nzb+1,:)
 !
 !--       Aerosol concentrations: lod=1 (vertical profile of sectional number size distribution)
           CALL get_attribute( id_dyn, 'lod', lod_aero, .FALSE., 'init_atmosphere_aerosol' )
