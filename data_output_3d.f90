@@ -194,6 +194,7 @@
     INTEGER(iwp) ::  n        !< loop index
     INTEGER(iwp) ::  nzb_do   !< vertical lower limit for data output
     INTEGER(iwp) ::  nzt_do   !< vertical upper limit for data output
+    INTEGER(iwp) ::  nan_count   !< number of NaN/Inf cells detected
 
     LOGICAL ::  found            !< true if output variable was found
     LOGICAL ::  mask_topography  !< true if topography grid points should be masked (false e.g. in case of terrain following data)
@@ -828,6 +829,20 @@
              CALL cpu_log( log_point_s(58), 'output_3d 1:nx+1 PUT', 'start' )
              output_3d_file_size = output_3d_file_size + SIZE( tr_out )
              !$ACC UPDATE HOST(tr_out) IF(enable_openacc)
+!
+!--          Replace NaN/Inf with 0.0 to prevent NetCDF write failure.
+             nan_count = COUNT( tr_out /= tr_out ) + COUNT( tr_out > 1.0E30_wp ) +             &
+                          COUNT( tr_out < -1.0E30_wp )
+             IF ( nan_count > 0 )  THEN
+                WRITE( message_string, * ) 'data_output_3d: NaN/Inf detected in variable ''',       &
+                                           TRIM( trimvar ), ''' at timestep ',                       &
+                                           do3d_time_count(av), ' (', nan_count,                    &
+                                           ' cells), replaced with 0.0 for 3D output'
+                CALL message( 'data_output_3d', 'PAC1000', 0, 1, 0, 6, 0 )
+                WHERE( tr_out /= tr_out .OR. tr_out > 1.0E30_wp .OR.                               &
+                       tr_out < -1.0E30_wp )                                                        &
+                   tr_out = 0.0_wp
+             ENDIF
              nc_stat = NF90_PUT_VAR( id_set_3d(av), id_var_do3d(av,ivar),                          &
                                      tr_out(1:nx+1,nys:nyn,nzb_x_diffnz:nzt_x_diffnz),             &
                                      start = (/ 1, nys+1, nzb_x_diffnz, do3d_time_count(av) /),    &
@@ -849,6 +864,20 @@
                 output_3d_file_size = output_3d_file_size + SIZE( local_pf )
              ENDIF
              !$ACC UPDATE HOST(local_pf) IF(enable_openacc)
+!
+!--          Replace NaN/Inf with 0.0 to prevent NetCDF write failure.
+             nan_count = COUNT( local_pf /= local_pf ) + COUNT( local_pf > 1.0E30_wp ) +       &
+                          COUNT( local_pf < -1.0E30_wp )
+             IF ( nan_count > 0 )  THEN
+                WRITE( message_string, * ) 'data_output_3d: NaN/Inf detected in variable ''',       &
+                                           TRIM( trimvar ), ''' at timestep ',                       &
+                                           do3d_time_count(av), ' (', nan_count,                    &
+                                           ' cells), replaced with 0.0 for 3D output'
+                CALL message( 'data_output_3d', 'PAC1000', 0, 1, 0, 6, 0 )
+                WHERE( local_pf /= local_pf .OR. local_pf > 1.0E30_wp .OR.                         &
+                       local_pf < -1.0E30_wp )                                                      &
+                   local_pf = 0.0_wp
+             ENDIF
              nc_stat = NF90_PUT_VAR( id_set_3d(av), id_var_do3d(av,ivar),                          &
                                       local_pf(nxl:nxr,nys:nyn,nzb_do:nzt_do),                     &
                                       start = (/ nxl+1, nys+1, 1, do3d_time_count(av) /),          &
@@ -864,6 +893,20 @@
 #if defined( __netcdf )
 !
 !--    Call for non-parallel runs
+!
+!--       Replace NaN/Inf with 0.0 to prevent NetCDF write failure.
+       nan_count = COUNT( local_pf /= local_pf ) + COUNT( local_pf > 1.0E30_wp ) +              &
+                    COUNT( local_pf < -1.0E30_wp )
+       IF ( nan_count > 0 )  THEN
+          WRITE( message_string, * ) 'data_output_3d: NaN/Inf detected in variable ''',             &
+                                     TRIM( trimvar ), ''' at timestep ',                             &
+                                     do3d_time_count(av), ' (', nan_count,                          &
+                                     ' cells), replaced with 0.0 for 3D output'
+          CALL message( 'data_output_3d', 'PAC1000', 0, 1, 0, 6, 0 )
+          WHERE( local_pf /= local_pf .OR. local_pf > 1.0E30_wp .OR.                               &
+                 local_pf < -1.0E30_wp )                                                            &
+             local_pf = 0.0_wp
+       ENDIF
        nc_stat = NF90_PUT_VAR( id_set_3d(av), id_var_do3d(av,ivar),                                &
                                local_pf(nxl:nxr,nys:nyn,nzb_do:nzt_do),                            &
                                start = (/ 1, 1, 1, do3d_time_count(av) /),                         &

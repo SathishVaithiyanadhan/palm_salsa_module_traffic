@@ -665,6 +665,26 @@ SUBROUTINE chem_emissions_match( emt_att,len_index )
              CASE ( 'ISOP' );  chem_emis_att%xm(ispec) = xm_H * 8 + xm_C * 5
              CASE ( 'RCHO' );  chem_emis_att%xm(ispec) = xm_H * 2 + xm_C + xm_O
              CASE ( 'RH'   );  chem_emis_att%xm(ispec) = xm_H * 6 + xm_C * 2
+			    CASE ( 'NO_tra' );  chem_emis_att%xm(ispec) = xm_N + xm_O 
+			    CASE ( 'NO2_tra' );  chem_emis_att%xm(ispec) = xm_N + xm_O * 2 
+             CASE ( 'OH'   );  chem_emis_att%xm(ispec) = xm_O + xm_H              ! 17.01 kg/mol
+             CASE ( 'HO2'  );  chem_emis_att%xm(ispec) = xm_H + xm_O * 2          ! 33.01 kg/mol
+             CASE ( 'O3'   );  chem_emis_att%xm(ispec) = xm_O * 3                 ! 48.00 kg/mol
+             CASE ( 'RO2'  );  chem_emis_att%xm(ispec) = 0.047_wp                 ! ~47 kg/mol for lumped peroxy radical
+             CASE ( 'H2SO4' ); chem_emis_att%xm(ispec) = xm_H * 2 + xm_S + xm_O * 4  ! 98.08 kg/mol
+             CASE ( 'OH_tra'   );  chem_emis_att%xm(ispec) = xm_O + xm_H              ! 17.01 kg/mol
+             CASE ( 'HO2_tra'  );  chem_emis_att%xm(ispec) = xm_H + xm_O * 2          ! 33.01 kg/mol
+             CASE ( 'O3_tra'   );  chem_emis_att%xm(ispec) = xm_O * 3                 ! 48.00 kg/mol
+             CASE ( 'RO2_tra'  );  chem_emis_att%xm(ispec) = 0.047_wp                 ! ~47 kg/mol for lumped peroxy radical
+             CASE ( 'H2SO4_tra' ); chem_emis_att%xm(ispec) = xm_H * 2 + xm_S + xm_O * 4  ! 98.08 kg/mol
+			    CASE ( 'OCSV' );  chem_emis_att%xm(ispec) = 0.200_wp   ! semi-volatile SOA 200 kg/mol
+             CASE ( 'OCNV' );  chem_emis_att%xm(ispec) = 0.250_wp   ! non-volatile SOA  250 kg/mol
+             CASE ( 'OCSV_tra' );  chem_emis_att%xm(ispec) = 0.200_wp   ! semi-volatile SOA 200 kg/mol
+             CASE ( 'OCNV_tra' );  chem_emis_att%xm(ispec) = 0.250_wp   ! non-volatile SOA  250 kg/mol
+             CASE ( 'RH_tra'   );  chem_emis_att%xm(ispec) = xm_H * 6 + xm_C * 2
+             CASE ( 'RCHO_tra' );  chem_emis_att%xm(ispec) = xm_H * 2 + xm_C + xm_O
+             CASE ( 'HNO3_tra' );  chem_emis_att%xm(ispec) = xm_H + xm_N + xm_O*3
+             CASE ( 'NH3_tra'  );  chem_emis_att%xm(ispec) = xm_N + xm_H * 3
              CASE DEFAULT
                 WRITE (message_string, * ) 'molar mass for "',                                     &
                                            TRIM( spc_names(match_spec_model(ispec) ) ),            &
@@ -1992,6 +2012,26 @@ SUBROUTINE chem_emissions_match( emt_att,len_index )
              CASE ( 'ISOP' );  chem_emis_att%xm(ispec) = xm_H * 8 + xm_C * 5
              CASE ( 'RCHO' );  chem_emis_att%xm(ispec) = xm_H * 2 + xm_C + xm_O
              CASE ( 'RH'   );  chem_emis_att%xm(ispec) = xm_H * 6 + xm_C * 2
+			    CASE ( 'NO_tra' );  chem_emis_att%xm(ispec) = xm_N + xm_O 
+			    CASE ( 'NO2_tra' );  chem_emis_att%xm(ispec) = xm_N + xm_O * 2 
+             CASE ( 'OH'   );  chem_emis_att%xm(ispec) = xm_O + xm_H              ! 17.01 kg/mol
+             CASE ( 'HO2'  );  chem_emis_att%xm(ispec) = xm_H + xm_O * 2          ! 33.01 kg/mol
+             CASE ( 'O3'   );  chem_emis_att%xm(ispec) = xm_O * 3                 ! 48.00 kg/mol
+             CASE ( 'RO2'  );  chem_emis_att%xm(ispec) = 0.047_wp                 ! ~47 kg/mol for lumped peroxy radical
+             CASE ( 'H2SO4' ); chem_emis_att%xm(ispec) = xm_H * 2 + xm_S + xm_O * 4  ! 98.08 kg/mol
+             CASE ( 'OH_tra'   );  chem_emis_att%xm(ispec) = xm_O + xm_H              ! 17.01 kg/mol
+             CASE ( 'HO2_tra'  );  chem_emis_att%xm(ispec) = xm_H + xm_O * 2          ! 33.01 kg/mol
+             CASE ( 'O3_tra'   );  chem_emis_att%xm(ispec) = xm_O * 3                 ! 48.00 kg/mol
+             CASE ( 'RO2_tra'  );  chem_emis_att%xm(ispec) = 0.047_wp                 ! ~47 kg/mol for lumped peroxy radical
+             CASE ( 'H2SO4_tra' ); chem_emis_att%xm(ispec) = xm_H * 2 + xm_S + xm_O * 4  ! 98.08 kg/mol
+			    CASE ( 'OCSV' );  chem_emis_att%xm(ispec) = 0.200_wp   ! semi-volatile SOA 200 kg/mol
+             CASE ( 'OCNV' );  chem_emis_att%xm(ispec) = 0.250_wp   ! non-volatile SOA  250 kg/mol
+             CASE ( 'OCSV_tra' );  chem_emis_att%xm(ispec) = 0.200_wp   ! semi-volatile SOA 200 kg/mol
+             CASE ( 'OCNV_tra' );  chem_emis_att%xm(ispec) = 0.250_wp   ! non-volatile SOA  250 kg/mol
+             CASE ( 'RH_tra'   );  chem_emis_att%xm(ispec) = xm_H * 6 + xm_C * 2
+             CASE ( 'RCHO_tra' );  chem_emis_att%xm(ispec) = xm_H * 2 + xm_C + xm_O
+             CASE ( 'HNO3_tra' );  chem_emis_att%xm(ispec) = xm_H + xm_N + xm_O*3
+             CASE ( 'NH3_tra'  );  chem_emis_att%xm(ispec) = xm_N + xm_H * 3
              CASE DEFAULT
                 WRITE (message_string, * ) 'molar mass for "',                                     &
                                            TRIM( spc_names(match_spec_model(ispec) ) ),            &

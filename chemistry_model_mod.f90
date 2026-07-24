@@ -1389,7 +1389,7 @@
 
                 DO  i = 1, mask_size_l(mid,1)
                    DO  j = 1, mask_size_l(mid,2)
-                      DO  k = 1, mask_size(mid,3)
+                      DO  k = 1, mask_size_l(mid,3)
                           local_pf(i,j,k) = chem_species(lsp)%conc( mask_k(mid,k),                 &
                                                                     mask_j(mid,j),                 &
                                                                     mask_i(mid,i)      )
@@ -2244,6 +2244,13 @@
 
              DO  lsp = 1, nspec
                 tmp_conc(ks:ke,lsp) = chem_species(lsp)%conc(nzb+1:nzt,j,i) * tmp_fact(ks:ke)
+!
+!--             Apply minimum concentration floor of 1.0 molecule/cm3 to ALL species
+!--             to prevent Rosenbrock integrator failure. WRF-Chem input contains
+!--             near-zero values (down to 1e-30 ppmv) for some species at certain
+!--             grid points, making the ODE Jacobian near-singular.
+!--             1.0 molecule/cm3 is negligible for atmospheric chemistry.
+                WHERE( tmp_conc(ks:ke,lsp) < 1.0_wp )  tmp_conc(ks:ke,lsp) = 1.0_wp
              ENDDO
 
              DO lph = 1, nphot
@@ -2344,6 +2351,13 @@
 
        DO  lsp = 1, nspec
           tmp_conc(:,lsp) = chem_species(lsp)%conc(nzb+1:nzt,j,i) * tmp_fact(:)
+!
+!--       Apply minimum concentration floor of 1.0 molecule/cm3 to ALL species
+!--       to prevent Rosenbrock integrator failure. WRF-Chem input contains
+!--       near-zero values (down to 1e-30 ppmv) for some species at certain
+!--       grid points, making the ODE Jacobian near-singular.
+!--       1.0 molecule/cm3 is negligible for atmospheric chemistry.
+          WHERE( tmp_conc(:,lsp) < 1.0_wp )  tmp_conc(:,lsp) = 1.0_wp
        ENDDO
 
        DO lph = 1, nphot

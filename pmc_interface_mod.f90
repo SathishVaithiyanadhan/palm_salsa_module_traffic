@@ -3044,8 +3044,8 @@
     IF ( TRIM(name) == 'sa'   )  p_3d_sec => sa_2
     IF ( TRIM(name) == 'diss' )  p_3d_sec => diss_2
     IF ( INDEX( TRIM(name), 'chem_' ) /= 0 )  p_3d_sec => spec_conc_2(:,:,:,n)
-    IF ( INDEX( TRIM(name), 'an_' )   /= 0 )  p_3d_sec => nconc_2(:,:,:,n)
-    IF ( INDEX( TRIM(name), 'am_' )   /= 0 )  p_3d_sec => mconc_2(:,:,:,n)
+    IF ( INDEX( TRIM(name), 'an_' )   /= 0 )  p_3d_sec => nconc_2(:,:,:,1,n)
+    IF ( INDEX( TRIM(name), 'am_' )   /= 0 )  p_3d_sec => mconc_2(:,:,:,1,n)
     IF ( INDEX( TRIM(name), 'sg_' )   /= 0  .AND.  .NOT.  salsa_gases_from_chem )                  &
                                  p_3d_sec => gconc_2(:,:,:,n)
     IF ( INDEX( TRIM(name), 'dm_' )   /= 0 )  p_3d_sec => dm_2(:,:,:,n)

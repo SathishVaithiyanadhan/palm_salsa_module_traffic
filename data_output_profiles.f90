@@ -28,6 +28,7 @@
                coupling_start_time,                                                                &
                dopr_n,                                                                             &
                dopr_time_count,                                                                    &
+               message_string,                                                                     &
                time_since_reference_point
 
     USE cpulog,                                                                                    &
@@ -66,6 +67,7 @@
 
     INTEGER(iwp) ::  i  !< loop index
     INTEGER(iwp) ::  sr !< statistic region index
+    INTEGER(iwp) ::  nan_count  !< number of NaN/Inf cells detected
 
 
 !
@@ -139,6 +141,22 @@
 #if defined( __netcdf )
 !
 !--                   Write data to netcdf file
+!
+!--                   Replace NaN/Inf with 0.0 to prevent NetCDF write failure.
+                      nan_count = COUNT( hom(nzb:nzt+1,1,dopr_initial_index(i),sr) /=              &
+                                   hom(nzb:nzt+1,1,dopr_initial_index(i),sr) ) +                    &
+                                   COUNT( hom(nzb:nzt+1,1,dopr_initial_index(i),sr) > 1.0E30_wp ) +&
+                                   COUNT( hom(nzb:nzt+1,1,dopr_initial_index(i),sr) < -1.0E30_wp )
+                      IF ( nan_count > 0 )  THEN
+                         WRITE( message_string, * ) 'data_output_profiles: NaN/Inf detected',        &
+                                                    ' (', nan_count, ' cells), replaced for profiles'
+                         CALL message( 'data_output_profiles', 'PAC1000', 0, 1, 0, 6, 0 )
+                         WHERE( hom(nzb:nzt+1,1,dopr_initial_index(i),sr) /=                       &
+                                hom(nzb:nzt+1,1,dopr_initial_index(i),sr) .OR.                     &
+                                hom(nzb:nzt+1,1,dopr_initial_index(i),sr) > 1.0E30_wp .OR.         &
+                                hom(nzb:nzt+1,1,dopr_initial_index(i),sr) < -1.0E30_wp )           &
+                            hom(nzb:nzt+1,1,dopr_initial_index(i),sr) = 0.0_wp
+                      ENDIF
                       nc_stat = NF90_PUT_VAR( id_set_pr, id_var_dopr(i,sr),                        &
                                               hom(nzb:nzt+1,1,dopr_initial_index(i),sr),           &
                                               start = (/ 1, 1 /),                                  &
@@ -181,6 +199,22 @@
 #if defined( __netcdf )
 !
 !--          Write data to netcdf file
+!
+!--          Replace NaN/Inf with 0.0 to prevent NetCDF write failure.
+             nan_count = COUNT( hom_sum(nzb:nzt+1,dopr_index(i),sr) /=                           &
+                          hom_sum(nzb:nzt+1,dopr_index(i),sr) ) +                                   &
+                          COUNT( hom_sum(nzb:nzt+1,dopr_index(i),sr) > 1.0E30_wp ) +                &
+                          COUNT( hom_sum(nzb:nzt+1,dopr_index(i),sr) < -1.0E30_wp )
+             IF ( nan_count > 0 )  THEN
+                WRITE( message_string, * ) 'data_output_profiles: NaN/Inf detected',                 &
+                                           ' (', nan_count, ' cells), replaced for profiles'
+                CALL message( 'data_output_profiles', 'PAC1000', 0, 1, 0, 6, 0 )
+                WHERE( hom_sum(nzb:nzt+1,dopr_index(i),sr) /=                                      &
+                       hom_sum(nzb:nzt+1,dopr_index(i),sr) .OR.                                    &
+                       hom_sum(nzb:nzt+1,dopr_index(i),sr) > 1.0E30_wp .OR.                        &
+                       hom_sum(nzb:nzt+1,dopr_index(i),sr) < -1.0E30_wp )                          &
+                   hom_sum(nzb:nzt+1,dopr_index(i),sr) = 0.0_wp
+             ENDIF
              nc_stat = NF90_PUT_VAR( id_set_pr, id_var_dopr(i,sr),                                 &
                                      hom_sum(nzb:nzt+1,dopr_index(i),sr),                          &
                                      start = (/ 1, dopr_time_count /),                             &

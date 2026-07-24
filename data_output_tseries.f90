@@ -25,6 +25,7 @@
 
     USE control_parameters,                                                                        &
         ONLY:  dots_time_count,                                                                    &
+               message_string,                                                                     &
                time_since_reference_point
 
     USE cpulog,                                                                                    &
@@ -57,6 +58,7 @@
 
     INTEGER(iwp) ::  i  !<
     INTEGER(iwp) ::  sr !<
+    INTEGER(iwp) ::  nan_count  !< number of NaN/Inf cells detected
 
 
 !
@@ -95,6 +97,18 @@
 
 #if defined( __netcdf )
           DO  i = 1, dots_num
+!
+!--          Replace NaN/Inf with 0.0 to prevent NetCDF write failure.
+             nan_count = 0
+             IF ( ts_value(i,sr) /= ts_value(i,sr) )  nan_count = nan_count + 1
+             IF ( ts_value(i,sr) > 1.0E30_wp )  nan_count = nan_count + 1
+             IF ( ts_value(i,sr) < -1.0E30_wp )  nan_count = nan_count + 1
+             IF ( nan_count > 0 )  THEN
+                WRITE( message_string, * ) 'data_output_tseries: NaN/Inf detected',                 &
+                                           ' (', nan_count, ' cells), replaced for time series'
+                CALL message( 'data_output_tseries', 'PAC1000', 0, 1, 0, 6, 0 )
+                ts_value(i,sr) = 0.0_wp
+             ENDIF
              nc_stat = NF90_PUT_VAR( id_set_ts, id_var_dots(i,sr),                                 &
                                      (/ ts_value(i,sr) /),                                         &
                                      start = (/ dots_time_count /),                                &

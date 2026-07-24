@@ -175,6 +175,7 @@
     INTEGER(iwp) ::  ku                      !< vertical index´
     INTEGER(iwp) ::  mid                     !< masked output running index
     INTEGER(iwp) ::  n                       !< loop index
+    INTEGER(iwp) ::  nan_count               !< number of NaN/Inf cells detected
 #if defined( __parallel )
     INTEGER(iwp) ::  ind(6)                  !< index limits (lower/upper bounds) of array 'local_2d'
     INTEGER(iwp) ::  ngp                     !< number of grid points of an output slice
@@ -982,6 +983,20 @@
           IF ( mask_size_l(mid,1) > 0  .AND.  mask_size_l(mid,2) > 0  .AND.                        &
                mask_size_l(mid,3) > 0  )                                                           &
           THEN
+!
+!--          Replace NaN/Inf with 0.0 to prevent NetCDF write failure (floating overflow).
+             nan_count = COUNT( local_pf /= local_pf ) + COUNT( local_pf > 1.0E30_wp ) +      &
+                          COUNT( local_pf < -1.0E30_wp )
+             IF ( nan_count > 0 )  THEN
+                WRITE( message_string, * ) 'data_output_mask: NaN/Inf detected in variable ''',    &
+                                           TRIM( domask(mid,av,ivar) ), ''' at timestep ',          &
+                                           domask_time_count(mid,av), ', mask ', mid,              &
+                                           ' (', nan_count, ' cells), replaced with 0.0 for masked output'
+                CALL message( 'data_output_mask', 'PAC1000', 0, 1, 0, 6, 0 )
+                WHERE( local_pf /= local_pf .OR. local_pf > 1.0E30_wp .OR.                        &
+                       local_pf < -1.0E30_wp )                                                     &
+                   local_pf = 0.0_wp
+             ENDIF
              nc_stat = NF90_PUT_VAR( id_set_mask(mid,av),                                          &
                                      id_var_domask(mid,av,ivar), local_pf,                         &
                                      start = (/ mask_start_l(mid,1), mask_start_l(mid,2),          &
@@ -1035,6 +1050,20 @@
                 ENDIF
              ENDDO
 
+!
+!--          Replace NaN/Inf with 0.0 to prevent NetCDF write failure (floating overflow).
+             nan_count = COUNT( total_pf /= total_pf ) + COUNT( total_pf > 1.0E30_wp ) +       &
+                          COUNT( total_pf < -1.0E30_wp )
+             IF ( nan_count > 0 )  THEN
+                WRITE( message_string, * ) 'data_output_mask: NaN/Inf detected in variable ''',    &
+                                           TRIM( domask(mid,av,ivar) ), ''' at timestep ',          &
+                                           domask_time_count(mid,av), ', mask ', mid,              &
+                                           ' (', nan_count, ' cells), replaced with 0.0 for masked output'
+                CALL message( 'data_output_mask', 'PAC1000', 0, 1, 0, 6, 0 )
+                WHERE( total_pf /= total_pf .OR. total_pf > 1.0E30_wp .OR.                         &
+                       total_pf < -1.0E30_wp )                                                      &
+                   total_pf = 0.0_wp
+             ENDIF
              nc_stat = NF90_PUT_VAR( id_set_mask(mid,av),                                          &
                                      id_var_domask(mid,av,ivar), total_pf,                         &
                                      start = (/ 1, 1, 1, domask_time_count(mid,av) /),             &
@@ -1077,6 +1106,20 @@
 !
 !--    (2) For serial execution of PALM, the single processor (PE0) holds all data and writes them
 !--        directly to file.
+!
+!--       Replace NaN/Inf with 0.0 to prevent NetCDF write failure (floating overflow).
+       nan_count = COUNT( local_pf /= local_pf ) + COUNT( local_pf > 1.0E30_wp ) +           &
+                    COUNT( local_pf < -1.0E30_wp )
+       IF ( nan_count > 0 )  THEN
+          WRITE( message_string, * ) 'data_output_mask: NaN/Inf detected in variable ''',           &
+                                     TRIM( domask(mid,av,ivar) ), ''' at timestep ',                &
+                                     domask_time_count(mid,av), ', mask ', mid,                     &
+                                     ' (', nan_count, ' cells), replaced with 0.0 for masked output'
+          CALL message( 'data_output_mask', 'PAC1000', 0, 1, 0, 6, 0 )
+          WHERE( local_pf /= local_pf .OR. local_pf > 1.0E30_wp .OR.                                &
+                 local_pf < -1.0E30_wp )                                                             &
+             local_pf = 0.0_wp
+       ENDIF
        nc_stat = NF90_PUT_VAR( id_set_mask(mid,av),                                                &
                                id_var_domask(mid,av,ivar), local_pf,                               &
                                start = (/ 1, 1, 1, domask_time_count(mid,av) /),                   &

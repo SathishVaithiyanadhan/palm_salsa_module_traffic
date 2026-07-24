@@ -190,6 +190,7 @@
     INTEGER(iwp) ::  nzb_do    !< lower limit of the data field (usually nzb)
     INTEGER(iwp) ::  nzt_do    !< upper limit of the data field (usually nzt+1)
     INTEGER(iwp) ::  s_ind     !< index of slice types (xy=1, xz=2, yz=3)
+    INTEGER(iwp) ::  nan_count !< number of NaN/Inf cells detected
 #if defined( __parallel )
     INTEGER(iwp) ::  iis       !< vertical index of a xy slice in array 'local_2d_sections'
     INTEGER(iwp) ::  ind(4)    !< index limits (lower/upper bounds) of array 'local_2d'
@@ -1620,6 +1621,19 @@
                             ALLOCATE( local_2d(nxl:nxr,nys:nyn) )
 
 #if defined( __netcdf )
+!
+!--                         Replace NaN/Inf with 0.0 to prevent NetCDF write failure.
+                            nan_count = COUNT( total_2d /= total_2d ) + COUNT( total_2d > 1.0E30_wp ) + &
+                                         COUNT( total_2d < -1.0E30_wp )
+                            IF ( nan_count > 0 )  THEN
+                               WRITE( message_string, * ) 'data_output_2d: NaN/Inf detected in variable ',     &
+                                                          TRIM( do2d(av,ivar) ), ''' (', nan_count, &
+                                                          ' cells), replaced with 0.0 for 2D output'
+                               CALL message( 'data_output_2d', 'PAC1000', 0, 1, 0, 6, 0 )
+                               WHERE( total_2d /= total_2d .OR. total_2d > 1.0E30_wp .OR.          &
+                                      total_2d < -1.0E30_wp )                                      &
+                                  total_2d = 0.0_wp
+                            ENDIF
                             IF ( two_d )  THEN
                                nc_stat = NF90_PUT_VAR( id_set_xy(av),                              &
                                                        id_var_do2d(av,ivar),                       &
@@ -1658,6 +1672,19 @@
 !
 !--                This is the non-parallel branch.
                    !$ACC UPDATE HOST( local_2d ) IF(enable_openacc)
+!
+!--                Replace NaN/Inf with 0.0 to prevent NetCDF write failure.
+                   nan_count = COUNT( local_2d /= local_2d ) + COUNT( local_2d > 1.0E30_wp ) + &
+                                COUNT( local_2d < -1.0E30_wp )
+                   IF ( nan_count > 0 )  THEN
+                      WRITE( message_string, * ) 'data_output_2d: NaN/Inf detected in variable ',              &
+                                                 TRIM( do2d(av,ivar) ), ''' (', nan_count, &
+                                                 ' cells), replaced with 0.0 for 2D output'
+                      CALL message( 'data_output_2d', 'PAC1000', 0, 1, 0, 6, 0 )
+                      WHERE( local_2d /= local_2d .OR. local_2d > 1.0E30_wp .OR.                   &
+                             local_2d < -1.0E30_wp )                                               &
+                         local_2d = 0.0_wp
+                   ENDIF
                    IF ( two_d ) THEN
                       nc_stat = NF90_PUT_VAR( id_set_xy(av),                                       &
                                               id_var_do2d(av,ivar),                                &
@@ -1855,6 +1882,19 @@
                             ALLOCATE( local_2d(nxl:nxr,nzb_do:nzt_do) )
 
 #if defined( __netcdf )
+!
+!--                         Replace NaN/Inf with 0.0 to prevent NetCDF write failure.
+                            nan_count = COUNT( total_2d /= total_2d ) + COUNT( total_2d > 1.0E30_wp ) + &
+                                         COUNT( total_2d < -1.0E30_wp )
+                            IF ( nan_count > 0 )  THEN
+                               WRITE( message_string, * ) 'data_output_2d: NaN/Inf detected in variable ',     &
+                                                          TRIM( do2d(av,ivar) ), ''' (', nan_count, &
+                                                          ' cells), replaced with 0.0 for 2D output'
+                               CALL message( 'data_output_2d', 'PAC1000', 0, 1, 0, 6, 0 )
+                               WHERE( total_2d /= total_2d .OR. total_2d > 1.0E30_wp .OR.          &
+                                      total_2d < -1.0E30_wp )                                      &
+                                  total_2d = 0.0_wp
+                            ENDIF
                             nc_stat = NF90_PUT_VAR( id_set_xz(av),                                 &
                                                     id_var_do2d(av,ivar),                          &
                                                     total_2d(0:nx,nzb_do:nzt_do),                  &
@@ -1895,6 +1935,19 @@
 !
 !--                This is the non-parallel branch.
                    !$ACC UPDATE HOST( local_2d ) IF(enable_openacc)
+!
+!--                Replace NaN/Inf with 0.0 to prevent NetCDF write failure.
+                   nan_count = COUNT( local_2d /= local_2d ) + COUNT( local_2d > 1.0E30_wp ) + &
+                                COUNT( local_2d < -1.0E30_wp )
+                   IF ( nan_count > 0 )  THEN
+                      WRITE( message_string, * ) 'data_output_2d: NaN/Inf detected in variable ',              &
+                                                 TRIM( do2d(av,ivar) ), ''' (', nan_count, &
+                                                 ' cells), replaced with 0.0 for 2D output'
+                      CALL message( 'data_output_2d', 'PAC1000', 0, 1, 0, 6, 0 )
+                      WHERE( local_2d /= local_2d .OR. local_2d > 1.0E30_wp .OR.                   &
+                             local_2d < -1.0E30_wp )                                               &
+                         local_2d = 0.0_wp
+                   ENDIF
                    nc_stat = NF90_PUT_VAR( id_set_xz(av),                                          &
                                            id_var_do2d(av,ivar),                                   &
                                            local_2d(nxl:nxr,nzb_do:nzt_do),                        &
@@ -2074,6 +2127,19 @@
                             ALLOCATE( local_2d(nys:nyn,nzb_do:nzt_do) )
 
 #if defined( __netcdf )
+!
+!--                         Replace NaN/Inf with 0.0 to prevent NetCDF write failure.
+                            nan_count = COUNT( total_2d /= total_2d ) + COUNT( total_2d > 1.0E30_wp ) + &
+                                         COUNT( total_2d < -1.0E30_wp )
+                            IF ( nan_count > 0 )  THEN
+                               WRITE( message_string, * ) 'data_output_2d: NaN/Inf detected in variable ',     &
+                                                          TRIM( do2d(av,ivar) ), ''' (', nan_count, &
+                                                          ' cells), replaced with 0.0 for 2D output'
+                               CALL message( 'data_output_2d', 'PAC1000', 0, 1, 0, 6, 0 )
+                               WHERE( total_2d /= total_2d .OR. total_2d > 1.0E30_wp .OR.          &
+                                      total_2d < -1.0E30_wp )                                      &
+                                  total_2d = 0.0_wp
+                            ENDIF
                             nc_stat = NF90_PUT_VAR( id_set_yz(av),                                 &
                                                     id_var_do2d(av,ivar),                          &
                                                     total_2d(0:ny,nzb_do:nzt_do),                  &
@@ -2114,6 +2180,19 @@
 !
 !--                This is the non-parallel branch.
                    !$ACC UPDATE HOST( local_2d ) IF(enable_openacc)
+!
+!--                Replace NaN/Inf with 0.0 to prevent NetCDF write failure.
+                   nan_count = COUNT( local_2d /= local_2d ) + COUNT( local_2d > 1.0E30_wp ) + &
+                                COUNT( local_2d < -1.0E30_wp )
+                   IF ( nan_count > 0 )  THEN
+                      WRITE( message_string, * ) 'data_output_2d: NaN/Inf detected in variable ',              &
+                                                 TRIM( do2d(av,ivar) ), ''' (', nan_count, &
+                                                 ' cells), replaced with 0.0 for 2D output'
+                      CALL message( 'data_output_2d', 'PAC1000', 0, 1, 0, 6, 0 )
+                      WHERE( local_2d /= local_2d .OR. local_2d > 1.0E30_wp .OR.                   &
+                             local_2d < -1.0E30_wp )                                               &
+                         local_2d = 0.0_wp
+                   ENDIF
                    nc_stat = NF90_PUT_VAR( id_set_yz(av),                                          &
                                            id_var_do2d(av,ivar),                                   &
                                            local_2d(nys:nyn,nzb_do:nzt_do),                        &
@@ -2147,6 +2226,21 @@
                       ENDIF
 
                       !$ACC UPDATE HOST( local_2d_sections ) IF(enable_openacc)
+!
+!--                   Replace NaN/Inf with 0.0 to prevent NetCDF write failure.
+                      nan_count = COUNT( local_2d_sections /= local_2d_sections ) + &
+                                   COUNT( local_2d_sections > 1.0E30_wp ) + &
+                                   COUNT( local_2d_sections < -1.0E30_wp )
+                      IF ( nan_count > 0 )  THEN
+                         WRITE( message_string, * ) 'data_output_2d: NaN/Inf detected in variable ',           &
+                                                    TRIM( do2d(av,ivar) ), ''' (', nan_count, &
+                                                    ' cells), replaced with 0.0 for 2D output'
+                         CALL message( 'data_output_2d', 'PAC1000', 0, 1, 0, 6, 0 )
+                         WHERE( local_2d_sections /= local_2d_sections .OR.                        &
+                                local_2d_sections > 1.0E30_wp .OR.                                 &
+                                local_2d_sections < -1.0E30_wp )                                   &
+                            local_2d_sections = 0.0_wp
+                      ENDIF
                       nc_stat = NF90_PUT_VAR( id_set_xy(av),                                       &
                                               id_var_do2d(av,ivar),                                &
                                               local_2d_sections(nxl:nxr,nys:nyn,1:nis),            &
@@ -2189,6 +2283,21 @@
 !--                   Only the first core along y does the output, the others call NF90_PUT_VAR
 !--                   with zero count. The ELSE branch is required to prevent a lock.
                       !$ACC UPDATE HOST( local_2d_sections ) IF(enable_openacc)
+!
+!--                   Replace NaN/Inf with 0.0 to prevent NetCDF write failure.
+                      nan_count = COUNT( local_2d_sections /= local_2d_sections ) + &
+                                   COUNT( local_2d_sections > 1.0E30_wp ) + &
+                                   COUNT( local_2d_sections < -1.0E30_wp )
+                      IF ( nan_count > 0 )  THEN
+                         WRITE( message_string, * ) 'data_output_2d: NaN/Inf detected in variable ',           &
+                                                    TRIM( do2d(av,ivar) ), ''' (', nan_count, &
+                                                    ' cells), replaced with 0.0 for 2D output'
+                         CALL message( 'data_output_2d', 'PAC1000', 0, 1, 0, 6, 0 )
+                         WHERE( local_2d_sections /= local_2d_sections .OR.                        &
+                                local_2d_sections > 1.0E30_wp .OR.                                 &
+                                local_2d_sections < -1.0E30_wp )                                   &
+                            local_2d_sections = 0.0_wp
+                      ENDIF
                       IF ( myidy == 0 )  THEN
                          nc_stat = NF90_PUT_VAR( id_set_xz(av),                                    &
                                                  id_var_do2d(av,ivar),                             &
@@ -2238,6 +2347,21 @@
 !--                   Only the first core along x does the output, the others call NF90_PUT_VAR
 !--                   with zero count. The ELSE branch is required to prevent a lock.
                       !$ACC UPDATE HOST( local_2d_sections ) IF(enable_openacc)
+!
+!--                   Replace NaN/Inf with 0.0 to prevent NetCDF write failure.
+                      nan_count = COUNT( local_2d_sections /= local_2d_sections ) + &
+                                   COUNT( local_2d_sections > 1.0E30_wp ) + &
+                                   COUNT( local_2d_sections < -1.0E30_wp )
+                      IF ( nan_count > 0 )  THEN
+                         WRITE( message_string, * ) 'data_output_2d: NaN/Inf detected in variable ',           &
+                                                    TRIM( do2d(av,ivar) ), ''' (', nan_count, &
+                                                    ' cells), replaced with 0.0 for 2D output'
+                         CALL message( 'data_output_2d', 'PAC1000', 0, 1, 0, 6, 0 )
+                         WHERE( local_2d_sections /= local_2d_sections .OR.                        &
+                                local_2d_sections > 1.0E30_wp .OR.                                 &
+                                local_2d_sections < -1.0E30_wp )                                   &
+                            local_2d_sections = 0.0_wp
+                      ENDIF
                       IF ( myidx == 0 )  THEN
                          nc_stat = NF90_PUT_VAR( id_set_yz(av),                                    &
                                                  id_var_do2d(av,ivar),                             &

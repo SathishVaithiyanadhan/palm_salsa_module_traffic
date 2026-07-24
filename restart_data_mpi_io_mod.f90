@@ -235,7 +235,7 @@
     REAL(KIND=wp), DIMENSION(max_nr_real)       ::  real_values
 
     INTEGER(KIND=rd_offset_kind)                ::  header_array_index
-    INTEGER, PARAMETER                          ::  max_nr_arrays=600
+    INTEGER, PARAMETER                          ::  max_nr_arrays=5000
     CHARACTER(LEN=32), DIMENSION(max_nr_arrays) ::  array_names
     INTEGER(KIND=rd_offset_kind), DIMENSION(max_nr_arrays) :: array_offset
 
