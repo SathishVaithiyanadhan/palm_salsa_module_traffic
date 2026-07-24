@@ -308,8 +308,8 @@
       IF ( ALLOCATED( min_dz_stretch_level_end ) )  THEN
          WRITE( 9, * )  '+++ init_grid debug: min_dz_stretch_level_end = ', min_dz_stretch_level_end
       ENDIF
-      IF ( ALLOCATED( dz_stretch_level_end ) )  THEN
-         WRITE( 9, * )  '+++ init_grid debug: dz_stretch_level_end    = ', dz_stretch_level_end
+      IF ( number_stretch_level_end > 0 )  THEN
+         WRITE( 9, * )  '+++ init_grid debug: dz_stretch_level_end    = ', dz_stretch_level_end(1:number_stretch_level_end)
       ENDIF
 
 !
