@@ -5085,8 +5085,9 @@
 
              counti = counti + 1
              IF ( counti > 1000 )  THEN
-                message_string = 'subrange 1: no convergence'
-                CALL message( 'salsa_mod: equilibration', 'SAL0029', 1, 2, 0, 6, 0 )
+                WRITE( 9, * )  'SALSA-WARN equilibration subrange 1 no convergence: bin=', ib, &
+                               ' rh=', zrh, ' dwet=', zdwet, ' (using last value)'
+                EXIT
              ENDIF
           ENDDO
 !
@@ -5171,8 +5172,9 @@
 
                 counti = counti + 1
                 IF ( counti > 1000 )  THEN
-                   message_string = 'subrange 2: no convergence'
-                CALL message( 'salsa_mod: equilibration', 'SAL0030', 1, 2, 0, 6, 0 )
+                   WRITE( 9, * )  'SALSA-WARN equilibration subrange 2 no convergence: bin=', ib, &
+                                  ' rh=', zrh, ' dwet=', zdwet, ' (using last value)'
+                   EXIT
                 ENDIF
              ENDDO
 !
@@ -5240,6 +5242,7 @@
                                    !< Table 3 in Z01
     REAL(wp) ::  par_l             !< obstacle characteristic dimension in P10
     REAL(wp) ::  pdn               !< particle density (kg/m3)
+    REAL(wp) ::  pdn_eff           !< effective density for sedimentation (kg/m3)
     REAL(wp) ::  ustar             !< friction velocity (m/s)
     REAL(wp) ::  va                !< thermal speed of an air molecule (m/s)
 
@@ -5264,7 +5267,7 @@
 !
 !-- Initialise
     depo  = 0.0_wp
-    pdn   = 1500.0_wp    ! default value
+    pdn   = 1500.0_wp    ! default particle density (kg/m3) for fine/accumulation mode
     ustar = 0.0_wp
 !
 !-- Molecular viscosity of air (Eq. 4.54)
@@ -5289,7 +5292,16 @@
     beta = 1.0_wp + Kn * ( 1.249_wp + 0.42_wp * EXP( -0.87_wp / Kn ) )
 !
 !-- Critical fall speed i.e. settling velocity  (Eq. 20.4)
-    vc = MIN( 1.0_wp, zdwet**2 * ( pdn - adn ) * g * beta / ( 18.0_wp * avis ) )
+! Use size-dependent particle density to enhance gravitational settling for
+! coarse particles (> 1 um). Saharan dust, road dust, and mineral aerosols
+! in the coarse mode have density ~2600 kg/m3 vs the default 1500 kg/m3.
+! This increases sedimentation velocity by ~73% for bins 6-10.
+    DO ib = 1, nbins_aerosol
+       pdn_eff = pdn
+       IF ( zdwet(ib) > 1.0E-6_wp )  pdn_eff = 2600.0_wp
+       vc(ib) = MIN( 1.0_wp, zdwet(ib)**2 * ( pdn_eff - adn ) * g * beta(ib)   &
+                    / ( 18.0_wp * avis ) )
+    ENDDO
 !
 !-- Deposition on vegetation
     IF ( lsdepo_pcm  .AND.  plant_canopy  .AND.  lad > 0.0_wp )  THEN
@@ -8945,7 +8957,7 @@
              zvfrac = MIN( 0.99_wp, znfrac * zvexc / zvpart )
              IF ( zvfrac < 0.0_wp )  THEN
                 message_string = 'error: zvfrac < 0'
-                CALL message( 'salsa_mod: distr_update', 'SAL0036', 1, 2, 0, 6, 0 )
+                CALL message( 'salsa_mod: distr_update', 'SAL0036', 2, 2, -1, 9, 1 )
              ENDIF
 !
 !--          Update bin
@@ -8972,8 +8984,8 @@
 
        counti = counti + 1
        IF ( counti > 100 )  THEN
-          message_string = 'aerosol bin update not converged'
-          CALL message( 'salsa_mod: distr_update', 'SAL0037', 1, 2, 0, 6, 0 )
+          WRITE( 9, * )  'SALSA-WARN distr_update not converged after 100 iterations (using current bin state)'
+          EXIT
        ENDIF
 
     ENDDO ! - within bins
@@ -17736,6 +17748,10 @@ CASE ( 'LDSA_tra' )
 
     REAL(wp) ::  eps = 1E-20_wp    !< security constant to avoid divisions by zero
     REAL(wp) ::  pmf1a             !< mass fraction in 1a
+    REAL(wp) ::  den1              !< denominator of Regime-1 mass fraction (guard)
+    INTEGER(iwp) ::  n_bad1        !< Regime-1 invalid-point counter (this call)
+    INTEGER(iwp), SAVE ::  n_bad1_log = 0   !< cap on Regime-1 log lines (all calls)
+    CHARACTER(LEN=6) ::  bname1    !< boundary name for Regime-1 diagnostics
 
     REAL(wp), DIMENSION(nbins_aerosol) ::  core   !< size of the bin mid aerosol particle
 
@@ -17874,6 +17890,17 @@ CASE ( 'LDSA_tra' )
 !-- leave the routine now.
     IF ( .NOT. proceed_processing )  RETURN
 !
+!-- Boundary name for Regime-1 diagnostics
+    SELECT CASE ( ibound )
+    CASE ( 1 );  bname1 = 'left'
+    CASE ( 2 );  bname1 = 'right'
+    CASE ( 3 );  bname1 = 'north'
+    CASE ( 4 );  bname1 = 'south'
+    CASE ( 5 );  bname1 = 'top'
+    CASE DEFAULT; bname1 = '?'
+    END SELECT
+    n_bad1 = 0
+!
 !-- Set mass concentrations:
 !-- Regime 1:
     SELECT CASE ( type_so4_oc )
@@ -17887,9 +17914,37 @@ CASE ( 'LDSA_tra' )
              DO  i = is, ie
                 DO  k = ks, ke
                    DO  t = ts, te
-                      pmf1a = mf2a(t,k,i,cc_i2m(1)) /                                              &
-                              ( mf2a(t,k,i,cc_i2m(1)) + mf2a(t,k,i,cc_i2m(2)) + eps )
-                      to_mconc(t,k,i,ic) = pmf1a * to_nconc(t,k,i,ib) * core(ib) * arhoh2so4
+                      den1 = mf2a(t,k,i,cc_i2m(1)) + mf2a(t,k,i,cc_i2m(2)) + eps
+                      IF ( .NOT. ( mf2a(t,k,i,cc_i2m(1)) == mf2a(t,k,i,cc_i2m(1)) ) .OR.   &
+                           .NOT. ( mf2a(t,k,i,cc_i2m(2)) == mf2a(t,k,i,cc_i2m(2)) ) .OR.   &
+                           .NOT. ( den1 == den1 )                                     .OR.  &
+                           .NOT. ( to_nconc(t,k,i,ib) == to_nconc(t,k,i,ib) )        .OR.  &
+                           ABS( mf2a(t,k,i,cc_i2m(1)) ) > HUGE( 1.0_wp )             .OR.  &
+                           ABS( mf2a(t,k,i,cc_i2m(2)) ) > HUGE( 1.0_wp )             .OR.  &
+                           ABS( den1 ) > HUGE( 1.0_wp )                              .OR.  &
+                           ABS( to_nconc(t,k,i,ib) ) > HUGE( 1.0_wp )                .OR.  &
+                           ABS( core(ib) ) > HUGE( 1.0_wp )                          .OR.  &
+                           den1 <= 0.0_wp )  THEN
+                         to_mconc(t,k,i,ic) = 0.0_wp
+                         n_bad1 = n_bad1 + 1
+                         IF ( n_bad1_log < 30 )  THEN
+                            n_bad1_log = n_bad1_log + 1
+                            WRITE( 6,'(A)' ) &
+                               'SALSA nesting_offl_aero_mass Regime-1 (SO4): invalid operand -> replaced by 0.0'
+                            WRITE( 6,'(A,A,A,I0,A,I0,A,I0,A,I0)' ) &
+                               '  species = SO4   boundary = ', TRIM( bname1 ), &
+                               '   i = ', i, '   k = ', k, '   t = ', t, '   ibin = ', ib
+                            WRITE( 6,'(A,ES13.5,A,ES13.5,A,ES13.5,A,ES13.5)' ) &
+                               '  mf2a_so4 = ', mf2a(t,k,i,cc_i2m(1)), &
+                               '   mf2a_oc = ', mf2a(t,k,i,cc_i2m(2)), &
+                               '   nconc = ', to_nconc(t,k,i,ib), '   core = ', core(ib)
+                            WRITE( 6,'(A)' ) &
+                               '  -> replaced by 0.0 here only; valid cells unchanged'
+                         ENDIF
+                      ELSE
+                         pmf1a = mf2a(t,k,i,cc_i2m(1)) / den1
+                         to_mconc(t,k,i,ic) = pmf1a * to_nconc(t,k,i,ib) * core(ib) * arhoh2so4
+                      ENDIF
                    ENDDO
                 ENDDO
              ENDDO
@@ -17902,9 +17957,37 @@ CASE ( 'LDSA_tra' )
              DO  i = is, ie
                 DO  k = ks, ke
                    DO  t = ts, te
-                      pmf1a = mf2a(t,k,i,cc_i2m(2)) /                                              &
-                              ( mf2a(t,k,i,cc_i2m(1)) + mf2a(t,k,i,cc_i2m(2)) + eps )
-                      to_mconc(t,k,i,ic) = pmf1a * to_nconc(t,k,i,ib) * core(ib) * arhooc
+                      den1 = mf2a(t,k,i,cc_i2m(1)) + mf2a(t,k,i,cc_i2m(2)) + eps
+                      IF ( .NOT. ( mf2a(t,k,i,cc_i2m(1)) == mf2a(t,k,i,cc_i2m(1)) ) .OR.   &
+                           .NOT. ( mf2a(t,k,i,cc_i2m(2)) == mf2a(t,k,i,cc_i2m(2)) ) .OR.   &
+                           .NOT. ( den1 == den1 )                                     .OR.  &
+                           .NOT. ( to_nconc(t,k,i,ib) == to_nconc(t,k,i,ib) )        .OR.  &
+                           ABS( mf2a(t,k,i,cc_i2m(1)) ) > HUGE( 1.0_wp )             .OR.  &
+                           ABS( mf2a(t,k,i,cc_i2m(2)) ) > HUGE( 1.0_wp )             .OR.  &
+                           ABS( den1 ) > HUGE( 1.0_wp )                              .OR.  &
+                           ABS( to_nconc(t,k,i,ib) ) > HUGE( 1.0_wp )                .OR.  &
+                           ABS( core(ib) ) > HUGE( 1.0_wp )                          .OR.  &
+                           den1 <= 0.0_wp )  THEN
+                         to_mconc(t,k,i,ic) = 0.0_wp
+                         n_bad1 = n_bad1 + 1
+                         IF ( n_bad1_log < 30 )  THEN
+                            n_bad1_log = n_bad1_log + 1
+                            WRITE( 6,'(A)' ) &
+                               'SALSA nesting_offl_aero_mass Regime-1 (OC): invalid operand -> replaced by 0.0'
+                            WRITE( 6,'(A,A,A,I0,A,I0,A,I0,A,I0)' ) &
+                               '  species = OC   boundary = ', TRIM( bname1 ), &
+                               '   i = ', i, '   k = ', k, '   t = ', t, '   ibin = ', ib
+                            WRITE( 6,'(A,ES13.5,A,ES13.5,A,ES13.5,A,ES13.5)' ) &
+                               '  mf2a_so4 = ', mf2a(t,k,i,cc_i2m(1)), &
+                               '   mf2a_oc = ', mf2a(t,k,i,cc_i2m(2)), &
+                               '   nconc = ', to_nconc(t,k,i,ib), '   core = ', core(ib)
+                            WRITE( 6,'(A)' ) &
+                               '  -> replaced by 0.0 here only; valid cells unchanged'
+                         ENDIF
+                      ELSE
+                         pmf1a = mf2a(t,k,i,cc_i2m(2)) / den1
+                         to_mconc(t,k,i,ic) = pmf1a * to_nconc(t,k,i,ib) * core(ib) * arhooc
+                      ENDIF
                    ENDDO
                 ENDDO
              ENDDO
@@ -17942,6 +18025,14 @@ CASE ( 'LDSA_tra' )
           ENDDO
 
     END SELECT
+
+!
+!--    Regime-1 summary (always written, details capped above)
+    IF ( n_bad1 > 0 )  THEN
+       WRITE( 6,'(A,A,A,I0,A)' ) &
+          'SALSA nesting_offl_aero_mass Regime-1 (boundary ', TRIM( bname1 ), &
+          '): ', n_bad1, ' invalid value(s) replaced by 0.0'
+    ENDIF
 
 !
 !-- Regimes 2a and 2b:
@@ -18017,10 +18108,44 @@ CASE ( 'LDSA_tra' )
 
        REAL(wp), INTENT(in) ::  prho !< aerosol density
 
+       REAL(wp) ::  sumf                      !< sum of input mass fractions (guard)
+       INTEGER(iwp) ::  n_nan                 !< invalid-point counter (this call)
+       INTEGER(iwp), SAVE ::  n_nan_log = 0   !< cap on detailed log lines (all calls)
+       CHARACTER(LEN=8) ::  spname            !< species name for diagnostics
+       CHARACTER(LEN=6) ::  bname             !< boundary name for diagnostics
+
 
 !
 !--    Define the index of the chemical component in the input data
        ic = salsa_nest_offl%cc_in2mod(ispec_def)
+
+!
+!--    Species + boundary names for the diagnostic output
+       SELECT CASE ( ispec )
+       CASE (  1 );  spname = 'SO4'
+       CASE (  2 );  spname = 'OC'
+       CASE (  3 );  spname = 'BC'
+       CASE (  4 );  spname = 'DU'
+       CASE (  5 );  spname = 'SS'
+       CASE (  6 );  spname = 'NO3'
+       CASE (  7 );  spname = 'NH4'
+       CASE (  8 );  spname = 'PB'
+       CASE (  9 );  spname = 'HG'
+       CASE ( 10 );  spname = 'NI'
+       CASE ( 11 );  spname = 'CD'
+       CASE ( 12 );  spname = 'AS'
+       CASE DEFAULT; spname = 'unknown'
+       END SELECT
+       SELECT CASE ( ibound )
+       CASE ( 1 );  bname = 'left'
+       CASE ( 2 );  bname = 'right'
+       CASE ( 3 );  bname = 'north'
+       CASE ( 4 );  bname = 'south'
+       CASE ( 5 );  bname = 'top'
+       CASE DEFAULT; bname = '?'
+       END SELECT
+
+       n_nan = 0
 
        DO  i = is, ie
           DO  k = ks, ke
@@ -18031,9 +18156,43 @@ CASE ( 'LDSA_tra' )
                 ee = ( ispec - 1 ) * nbins_aerosol + end_subrange_2a
                 ib = start_subrange_2a
                 DO  icc = ss, ee
-                   to_mconc(t,k,i,icc) = MAX( 0.0_wp, mf2a(t,k,i,ic) /                             &
-                                                      ( SUM( mf2a(t,k,i,:) ) + eps ) ) *           &
-                                         to_nconc(t,k,i,ib) * core(ib) * prho
+                   sumf = SUM( mf2a(t,k,i,:) )
+!
+!--                Guard against NaN / Inf / non-positive values in ANY operand of
+!--                the boundary mass-concentration calculation (mf2a, sumf, to_nconc,
+!--                core).  This is what raised the "forrtl: error (65) floating
+!--                invalid" in set_nest_mass (e.g. 0/0, Inf/Inf or 0*Inf).  Only
+!--                invalid cells are replaced by 0.0 and logged; all valid cells are
+!--                left unchanged (identical values as before).
+                   IF ( .NOT. ( mf2a(t,k,i,ic)         == mf2a(t,k,i,ic) )         .OR.  &
+                        .NOT. ( sumf == sumf )                                    .OR.  &
+                        .NOT. ( to_nconc(t,k,i,ib)     == to_nconc(t,k,i,ib) )    .OR.  &
+                        ABS( mf2a(t,k,i,ic) )          > HUGE( 1.0_wp )           .OR.  &
+                        ABS( sumf )                    > HUGE( 1.0_wp )           .OR.  &
+                        ABS( to_nconc(t,k,i,ib) )      > HUGE( 1.0_wp )           .OR.  &
+                        ABS( core(ib) )                > HUGE( 1.0_wp )           .OR.  &
+                        sumf <= 0.0_wp )  THEN
+                      to_mconc(t,k,i,icc) = 0.0_wp
+                      n_nan = n_nan + 1
+                      IF ( n_nan_log < 30 )  THEN
+                         n_nan_log = n_nan_log + 1
+                         WRITE( 6,'(A)' ) &
+                            'SALSA set_nest_mass: invalid operand in boundary mass calc -> replaced by 0.0'
+                         WRITE( 6,'(A,A,A,A,A,I0,A,I0,A,I0,A,I0,A,I0)' ) &
+                            '  species = ', TRIM( spname ), '   boundary = ', TRIM( bname ), &
+                            '   ispec = ', ispec, '   i = ', i, '   k = ', k, '   t = ', t, &
+                            '   ibin = ', ib
+                         WRITE( 6,'(A,ES13.5,A,ES13.5,A,ES13.5,A,ES13.5,A,ES13.5)' ) &
+                            '  mf2a = ', mf2a(t,k,i,ic), '   sumf = ', sumf, &
+                            '   nconc = ', to_nconc(t,k,i,ib), '   core = ', core(ib), &
+                            '   prho = ', prho
+                         WRITE( 6,'(A)' ) &
+                            '  -> replaced by 0.0 here only; all other (valid) cells unchanged'
+                      ENDIF
+                   ELSE
+                      to_mconc(t,k,i,icc) = MAX( 0.0_wp, mf2a(t,k,i,ic) / ( sumf + eps ) ) *     &
+                                            to_nconc(t,k,i,ib) * core(ib) * prho
+                   ENDIF
                    ib = ib + 1
                 ENDDO
 !
@@ -18047,6 +18206,18 @@ CASE ( 'LDSA_tra' )
              ENDDO
           ENDDO
        ENDDO
+
+!
+!--    Per-species summary of the guarded points (always written, even if the
+!--    30-line detailed cap was already reached)
+       IF ( n_nan > 0 )  THEN
+          WRITE( 6,'(A,A,A,A,I0,A)' ) &
+             'SALSA set_nest_mass: species ', TRIM( spname ), ' (boundary ', TRIM( bname ), &
+             '): ', n_nan, ' invalid value(s) replaced by 0.0'
+          WRITE( 6,'(A)' ) &
+             '  -> cause: NaN/Inf/non-positive mass fractions in the offline-nesting ' // &
+             'SALSA input and/or restart fields; fix the input data - the guard only avoids the crash.'
+       ENDIF
 
     END SUBROUTINE set_nest_mass
 

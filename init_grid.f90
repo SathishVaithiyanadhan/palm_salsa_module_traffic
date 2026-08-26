@@ -302,17 +302,6 @@
        ENDIF
 
 !
-!-- Print stretch level parameters for debugging (both initial and restart runs)
-      WRITE( 9, * )  '+++ init_grid debug: number_stretch_level_start = ', number_stretch_level_start
-      WRITE( 9, * )  '+++ init_grid debug: number_stretch_level_end   = ', number_stretch_level_end
-      IF ( ALLOCATED( min_dz_stretch_level_end ) )  THEN
-         WRITE( 9, * )  '+++ init_grid debug: min_dz_stretch_level_end = ', min_dz_stretch_level_end
-      ENDIF
-      IF ( number_stretch_level_end > 0 )  THEN
-         WRITE( 9, * )  '+++ init_grid debug: dz_stretch_level_end    = ', dz_stretch_level_end(1:number_stretch_level_end)
-      ENDIF
-
-!
 !--    Grid for atmosphere with surface at z=0. This corresponds to k=0 on the w-grid AND
 !--    the u-grid. Vertical shift of elevated childs is considered via nest_shift_z, which is
 !--    zero by default.

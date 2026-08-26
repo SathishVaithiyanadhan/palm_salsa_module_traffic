@@ -646,6 +646,7 @@ SUBROUTINE chem_emissions_match( emt_att,len_index )
        DO  ispec = 1, n_matched_vars
           SELECT CASE ( TRIM( spc_names(match_spec_model(ispec)) ) )
              CASE ( 'SO2'  );  chem_emis_att%xm(ispec) = xm_S + xm_O * 2
+             CASE ( 'SO2_tra'  );  chem_emis_att%xm(ispec) = xm_S + xm_O * 2
              CASE ( 'SO4'  );  chem_emis_att%xm(ispec) = xm_S + xm_O * 4
              CASE ( 'NO'   );  chem_emis_att%xm(ispec) = xm_N + xm_O
              CASE ( 'NO2'  );  chem_emis_att%xm(ispec) = xm_N + xm_O * 2
@@ -1993,6 +1994,7 @@ SUBROUTINE chem_emissions_match( emt_att,len_index )
        DO  ispec = 1, n_matched_vars
           SELECT CASE ( TRIM( spc_names(match_spec_model(ispec)) ) )
              CASE ( 'SO2'  );  chem_emis_att%xm(ispec) = xm_S + xm_O * 2
+             CASE ( 'SO2_tra'  );  chem_emis_att%xm(ispec) = xm_S + xm_O * 2
              CASE ( 'SO4'  );  chem_emis_att%xm(ispec) = xm_S + xm_O * 4
              CASE ( 'NO'   );  chem_emis_att%xm(ispec) = xm_N + xm_O
              CASE ( 'NO2'  );  chem_emis_att%xm(ispec) = xm_N + xm_O * 2
