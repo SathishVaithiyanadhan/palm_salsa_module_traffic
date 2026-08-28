@@ -1230,6 +1230,13 @@
        ENDDO
     ENDIF
 
+!
+!-- Clip small negative concentrations (solver/transport noise on near-zero trace
+!-- species) to zero so that no negative values ever reach any output.
+    IF ( found )  THEN
+       WHERE ( local_pf < 0.0_wp )  local_pf = 0.0_wp
+    ENDIF
+
     RETURN
 
  END SUBROUTINE chem_data_output_2d
@@ -1342,6 +1349,13 @@
 
        ENDDO
 
+    ENDIF
+
+!
+!-- Clip small negative concentrations (solver/transport noise on near-zero trace
+!-- species) to zero so that no negative values ever reach any output.
+    IF ( found )  THEN
+       WHERE ( local_pf < 0.0_wp )  local_pf = 0.0_wp
     ENDIF
 
  END SUBROUTINE chem_data_output_3d
@@ -1462,6 +1476,13 @@
           EXIT
        ENDIF
     ENDDO
+
+!
+!-- Clip small negative concentrations (solver/transport noise on near-zero trace
+!-- species) to zero so that no negative values ever reach any output.
+    IF ( found )  THEN
+       WHERE ( local_pf < 0.0_wp )  local_pf = 0.0_wp
+    ENDIF
 
     RETURN
 
