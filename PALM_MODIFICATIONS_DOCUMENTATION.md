@@ -2,6 +2,7 @@
 
 > **Folder**: `JOBS/salsa_tra/USER_CODE/`
 > **Date**: 2026-08-13
+> **Latest update**: 2026-08-28 — restart fixes in the offline-nesting aerosol routines (Changes 7.13, 7.14) + File 10: Traffic Source Tagging — TOAST 1.0 methodology
 > **Author**: Sathish Kumar Vaithiyanadhan
 > **Purpose**: Fix floating overflow crashes + Rosenbrock integrator failure + restart MPI deadlock (non-convergence)
 
@@ -18,6 +19,8 @@
 | Restart array overflow | `restart_data_mpi_io_mod` | `max_nr_arrays`: 600 → 5000 | `restart_data_mpi_io_mod.f90` |
 | Restart "hang" (MPI deadlock) | `equilibration` / `distr_update` | non-fatal break-out + `SALSA-WARN` | `salsa_mod.f90` |
 | `forrtl: error (65): floating invalid` | `salsa_mod.f90:18046` (`set_nest_mass`) | NaN/Inf/non-positive operand guard → 0.0 + log | `salsa_mod.f90` |
+| Restart: NaN boundary aerosol / crash (`sumf=NaN`) | `salsa_mod.f90:18227/18270/18315/18330/18463` (`nesting_offl_aero_mass` / `set_nest_mass`) | time loops `DO t = ts,te` → `DO t = 0,1` (5×; out-of-bounds on the 2-level `(0:1,…)` time arrays when `tind > 0`) | `salsa_mod.f90` |
+| `forrtl: error (61): format/variable-type mismatch` | `salsa_mod.f90:18525` (`set_nest_mass` summary WRITE) | format string `'(A,A,A,A,I0,A)'` → `'(A,A,A,A,A,I0,A)'` (6 → 7 descriptors) | `salsa_mod.f90` |
 
 ---
 
@@ -474,6 +477,60 @@ ENDIF
 - **Does not fix the root cause** — the log lines (species / boundary / time-slice / values) are the diagnostic to locate the bad value in the driving or restart data.
 - **Activation**: requires rebuilding the job's executable.
 
+### Change 7.13 — Restart-safe time-loop bounds in the offline-nesting aerosol routines (out-of-bounds → NaN boundary)
+
+**Lines**: ~18227, 18270, 18315, 18330 (`nesting_offl_aero_mass`), ~18463 (`set_nest_mass`)
+**Why**: The offline-nesting boundary routines are called with the current forcing-time index:
+
+```fortran
+CALL nesting_offl_aero_mass( salsa_nest_offl%tind, salsa_nest_offl%tind_p, ... )
+```
+
+`tind` is the index of the current model time in the forcing file. The aerosol boundary arrays
+(`mf2a`, `to_nconc = salsa_nest_offl%nconc_*`, `to_mconc = salsa_nest_offl%mconc_*`) are allocated with
+**only 2 time levels** `(0:1, …)` — the two forcing times bracketing the current time.
+
+- **Fresh run**: `tind = 0` → `DO t = ts, te` = `DO t = 0, 1` → valid (worked by luck).
+- **Restart**: `tind > 0` (e.g. 5) → `DO t = 5, 6` → **out-of-bounds read** on a `(0:1,…)` array →
+  garbage/NaN boundary aerosol → NaN propagates into the domain (log: `SALSA set_nest_mass: invalid operand ... sumf=NaN`).
+- **Fix**: hardcode `DO t = 0, 1` — only the two loaded time levels are ever accessed for the boundary mass update.
+
+**Original** (5 loops): `DO t = ts, te`
+**Modified** (5 loops): `DO t = 0, 1`
+
+```fortran
+       DO  i = is, ie
+          DO  k = ks, ke
+             DO  t = 0, 1        !< was: DO t = ts, te (tind/tind_p) — out of bounds on restart
+```
+
+### Change 7.14 — Format-string fix in the `set_nest_mass` per-species summary WRITE
+
+**Line**: ~18525
+**Why**: The per-species summary that runs when the Change 7.10 NaN guard fires wrote **7 arguments** with a
+**6-descriptor** format → `forrtl: severe (61): format/variable-type mismatch` → the guard crashed exactly when
+it was supposed to report the bad data (this is why the restart crash looked like a format bug).
+
+**Original**:
+```fortran
+WRITE( 6,'(A,A,A,A,I0,A)' ) &            ! 6 descriptors, 7 args -> mismatch when n_nan > 0
+   'SALSA set_nest_mass: species ', TRIM( spname ), ' (boundary ', TRIM( bname ), &
+   '): ', n_nan, ' invalid value(s) replaced by 0.0'
+```
+**Modified**:
+```fortran
+WRITE( 6,'(A,A,A,A,A,I0,A)' ) &          ! 7 descriptors, 7 args
+   'SALSA set_nest_mass: species ', TRIM( spname ), ' (boundary ', TRIM( bname ), &
+   '): ', n_nan, ' invalid value(s) replaced by 0.0'
+```
+
+### Change 7.13/7.14 — Effect on simulation & output
+- **Fresh runs**: no change — `tind = 0` already gave `t = 0, 1`, so output is bit-identical.
+- **Restart runs**: previously NaN boundary aerosol (or a `severe (61)` crash from the guard's summary);
+  now the boundary mass is computed from the correct two loaded time levels → clean, reproducible restarts.
+- **Does not change the physics** — only corrects array indexing and the diagnostic output format.
+- **Activation**: requires rebuilding the job's executable.
+
 ---
 
 ## File 8: `restart_data_mpi_io_mod.f90`
@@ -504,17 +561,37 @@ ENDIF
 
 ---
 
-## Files to Copy to HPC
+## File 10: Traffic Source Tagging — TOAST 1.0 methodology
 
+**Scope**: Adds a fully tagged traffic population for both gas-phase chemistry (TOAST Ox/NOy tagging) and aerosol (SALSA dual-population), so the traffic contribution to NOx/O3/PM can be separated from the background. All tagged species are advected/reacted in parallel with the untagged ones.
+
+### Change 10.1 — Gas-phase TOAST tagging (mechanism `salsa+simple_tra.eqn`)
+
+- Mechanism: kpp4palm 2.2.3, `packages/chemistry/kpp4palm/mechanisms/def_salsa+simple_tra/` (33 reactions, nphot=2, `j_no2`=1, `j_o31d`=2). Tagged species: `NO_tra, NO2_tra, NO2_x_tra, O3_tra, OH_tra, RH_tra, RO2_tra, RCHO_tra, HO2_tra, SO2_tra, H2SO4_tra, HNO3_tra, NH3_tra, OCSV_tra, OCNV_tra, PM10_tra, PM25_tra` → output as `kc_<S>_tra`.
+- **TOAST Ox/NOy split** (Butler et al. 2018 / Coates): `NO2_tra` is the **NOy (null-cycle) reservoir** — it is created by `NO_tra + O3` and photolyses back to `NO_tra`, but it **never creates traffic O3**. Only `NO2_x_tra` (the **Ox** pool), produced by the peroxy/`RO2`+`NO_tra` and `HO2`+`NO_tra` steps, photolyses (`j_NO2`) to `O3_tra`. `O3_tra` is lost at the **same rates as total O3** (photolysis via `j_O31D` + `NO` titration), so the tagged O3 follows the real chemistry:
+
+```fortran
+{ 12.}  NO_tra + O3 = NO2_tra + O3          // NOy null-cycle reservoir
+{ 14.}  NO_tra + RO2 = NO2_x_tra + RO2      // Ox production
+{ 15.}  NO_tra + HO2 = NO2_x_tra + HO2      // Ox production
+{ 16.}  NO2_x_tra + hv = NO_tra + O3_tra    // tagged O3 (the only O3_tra source)
+{ 17.}  O3_tra + H2O = 2 OH_tra             // lost like O3+O1D
+{ 18.}  O3_tra + NO = NO                    // lost like O3+NO (titration)
 ```
-JOBS/salsa_tra/USER_CODE/
-├── data_output_mask.f90         — NaN protection for masked output
-├── data_output_3d.f90           — NaN protection for 3D output
-├── data_output_2d.f90           — NaN protection for 2D sections
-├── data_output_profiles.f90     — NaN protection for profiles
-├── data_output_tseries.f90      — NaN protection for time series
-├── chemistry_model_mod.f90      — Rosenbrock floor + mask_size fix
-├── salsa_mod.f90                — NaN cleanup + header improvements + restart non-convergence robustness
-├── restart_data_mpi_io_mod.f90  — max_nr_arrays 600 → 5000
-└── pmc_interface_mod.f90        — dual-population nesting array dimensions
-```
+
+- OH/HO2/RO2/RH/RCHO/SO2 tagged chains (19–24) mirror the SIA precursor chemistry; `OH_tra` sinks (25–27) mirror real OH loss channels; `NH3_tra`, `OCNV_tra`, `PM10_tra`, `PM25_tra` are passive (rate 1.0).
+
+### Change 10.2 — SALSA dual-population aerosol tagging (`salsa_mod.f90`)
+
+- `npop = 2`: population **1 = total/non-traffic**, population **2 = traffic-tagged**; switch `is_traffic` (`npop = MERGE(2,1,is_traffic)`).
+- `aerosol_mass_tra` (and the pop-2 number cohort) = traffic state, aliased to `mconc_1/2/3(:,:,:,2,i)`. Traffic emissions are injected into pop-2 and **all aerosol processes act on it** (condensation, coagulation, deposition, growth) — so traffic PM ages like real aerosol, not like a passive tracer.
+- Tagged diagnostics (each also has a `_tra` version): `salsa_PM10_tra`, `salsa_PM2.5_tra` (sum of `aerosol_mass_tra` over bins ≤ 10 / ≤ 2.5 µm), `salsa_s_<S>_tra` per species, `salsa_Ntot_tra`.
+- Restart/nesting support for the 2nd population: `restart_data_mpi_io_mod.f90` `max_nr_arrays` 600→5000 (File 8) and `pmc_interface_mod.f90` pop-index nesting arrays (File 9).
+- Cross-check: passive gas tracers `kc_PM10_tra` / `kc_PM25_tra` (chem-emission PM10/PM25) are the cheap emission-only reference for `salsa_PM*_tra`.
+
+### Change 10.3 — Reference
+
+- Butler, T., Lupascu, A., Coates, J., Zhu, S.: *TOAST 1.0 — Tagged Oxidant and Aerosol Source Tagging*, Geosci. Model Dev., 2018. The `NO2_x_tra → O3_tra` conduit implements the Ox-tagging rule: only the Ox-labelled NO2 (from peroxy+NO) photolyses to tagged O3; the NOy pool never does.
+
+---
+

@@ -133,25 +133,25 @@ MODULE chem_gasphase_mod
 ! NVAR - Number of Variable species
   INTEGER, PARAMETER :: nvar = 33 
 ! NVARACT - Number of Active species
-  INTEGER, PARAMETER :: nvaract = 26 
+  INTEGER, PARAMETER :: nvaract = 27 
 ! NFIX - Number of Fixed species
   INTEGER, PARAMETER :: nfix = 1 
 ! NREACT - Number of reactions
-  INTEGER, PARAMETER :: nreact = 26 
+  INTEGER, PARAMETER :: nreact = 33 
 ! NVARST - Starting of variables in conc. vect.
   INTEGER, PARAMETER :: nvarst = 1 
 ! NFIXST - Starting of fixed in conc. vect.
   INTEGER, PARAMETER :: nfixst = 34 
 ! NONZERO - Number of nonzero entries in Jacobian
-  INTEGER, PARAMETER :: nonzero = 99 
+  INTEGER, PARAMETER :: nonzero = 106 
 ! LU_NONZERO - Number of nonzero entries in LU factoriz. of Jacobian
-  INTEGER, PARAMETER :: lu_nonzero = 101 
+  INTEGER, PARAMETER :: lu_nonzero = 109 
 ! CNVAR - (NVAR+1) Number of elements in compressed row format
   INTEGER, PARAMETER :: cnvar = 34 
 ! CNEQN - (NREACT+1) Number stoicm elements in compressed col format
-  INTEGER, PARAMETER :: cneqn = 27 
+  INTEGER, PARAMETER :: cneqn = 34 
 ! NHESS - Length of Sparse Hessian
-  INTEGER, PARAMETER :: nhess = 45 
+  INTEGER, PARAMETER :: nhess = 49 
 ! NMASS - Number of atoms to check mass balance
   INTEGER, PARAMETER :: nmass = 1 
 
@@ -160,37 +160,37 @@ MODULE chem_gasphase_mod
 
   INTEGER, PARAMETER, PUBLIC :: ind_nh3 = 1 
   INTEGER, PARAMETER, PUBLIC :: ind_ocnv = 2 
-  INTEGER, PARAMETER, PUBLIC :: ind_ocsv = 3 
-  INTEGER, PARAMETER, PUBLIC :: ind_nh3_tra = 4 
-  INTEGER, PARAMETER, PUBLIC :: ind_ocnv_tra = 5 
-  INTEGER, PARAMETER, PUBLIC :: ind_ocsv_tra = 6 
-  INTEGER, PARAMETER, PUBLIC :: ind_pm10 = 7 
-  INTEGER, PARAMETER, PUBLIC :: ind_pm25 = 8 
-  INTEGER, PARAMETER, PUBLIC :: ind_pm10_tra = 9 
-  INTEGER, PARAMETER, PUBLIC :: ind_pm25_tra = 10 
-  INTEGER, PARAMETER, PUBLIC :: ind_hno3 = 11 
-  INTEGER, PARAMETER, PUBLIC :: ind_rcho = 12 
+  INTEGER, PARAMETER, PUBLIC :: ind_oh_tra = 3 
+  INTEGER, PARAMETER, PUBLIC :: ind_o3_tra = 4 
+  INTEGER, PARAMETER, PUBLIC :: ind_ho2_tra = 5 
+  INTEGER, PARAMETER, PUBLIC :: ind_nh3_tra = 6 
+  INTEGER, PARAMETER, PUBLIC :: ind_ocnv_tra = 7 
+  INTEGER, PARAMETER, PUBLIC :: ind_pm10 = 8 
+  INTEGER, PARAMETER, PUBLIC :: ind_pm25 = 9 
+  INTEGER, PARAMETER, PUBLIC :: ind_pm10_tra = 10 
+  INTEGER, PARAMETER, PUBLIC :: ind_pm25_tra = 11 
+  INTEGER, PARAMETER, PUBLIC :: ind_hno3 = 12 
   INTEGER, PARAMETER, PUBLIC :: ind_h2so4 = 13 
-  INTEGER, PARAMETER, PUBLIC :: ind_h2o_tra = 14 
-  INTEGER, PARAMETER, PUBLIC :: ind_rcho_tra = 15 
-  INTEGER, PARAMETER, PUBLIC :: ind_hno3_tra = 16 
-  INTEGER, PARAMETER, PUBLIC :: ind_h2so4_tra = 17 
-  INTEGER, PARAMETER, PUBLIC :: ind_so2_tra = 18 
-  INTEGER, PARAMETER, PUBLIC :: ind_rh = 19 
-  INTEGER, PARAMETER, PUBLIC :: ind_so2 = 20 
+  INTEGER, PARAMETER, PUBLIC :: ind_ocsv = 14 
+  INTEGER, PARAMETER, PUBLIC :: ind_hno3_tra = 15 
+  INTEGER, PARAMETER, PUBLIC :: ind_h2so4_tra = 16 
+  INTEGER, PARAMETER, PUBLIC :: ind_so2_tra = 17 
+  INTEGER, PARAMETER, PUBLIC :: ind_ocsv_tra = 18 
+  INTEGER, PARAMETER, PUBLIC :: ind_rcho_tra = 19 
+  INTEGER, PARAMETER, PUBLIC :: ind_ro2_tra = 20 
   INTEGER, PARAMETER, PUBLIC :: ind_rh_tra = 21 
-  INTEGER, PARAMETER, PUBLIC :: ind_ro2_tra = 22 
-  INTEGER, PARAMETER, PUBLIC :: ind_ro2 = 23 
-  INTEGER, PARAMETER, PUBLIC :: ind_o3 = 24 
-  INTEGER, PARAMETER, PUBLIC :: ind_no2 = 25 
-  INTEGER, PARAMETER, PUBLIC :: ind_no = 26 
-  INTEGER, PARAMETER, PUBLIC :: ind_oh = 27 
-  INTEGER, PARAMETER, PUBLIC :: ind_ho2 = 28 
-  INTEGER, PARAMETER, PUBLIC :: ind_ho2_tra = 29 
-  INTEGER, PARAMETER, PUBLIC :: ind_oh_tra = 30 
-  INTEGER, PARAMETER, PUBLIC :: ind_no2_tra = 31 
-  INTEGER, PARAMETER, PUBLIC :: ind_no_tra = 32 
-  INTEGER, PARAMETER, PUBLIC :: ind_o3_tra = 33 
+  INTEGER, PARAMETER, PUBLIC :: ind_rh = 22 
+  INTEGER, PARAMETER, PUBLIC :: ind_so2 = 23 
+  INTEGER, PARAMETER, PUBLIC :: ind_rcho = 24 
+  INTEGER, PARAMETER, PUBLIC :: ind_no2_tra = 25 
+  INTEGER, PARAMETER, PUBLIC :: ind_no2_x_tra = 26 
+  INTEGER, PARAMETER, PUBLIC :: ind_no_tra = 27 
+  INTEGER, PARAMETER, PUBLIC :: ind_o3 = 28 
+  INTEGER, PARAMETER, PUBLIC :: ind_ro2 = 29 
+  INTEGER, PARAMETER, PUBLIC :: ind_no2 = 30 
+  INTEGER, PARAMETER, PUBLIC :: ind_oh = 31 
+  INTEGER, PARAMETER, PUBLIC :: ind_no = 32 
+  INTEGER, PARAMETER, PUBLIC :: ind_ho2 = 33 
 
 ! Index declaration for fixed species in C
 !   C(ind_spc)
@@ -203,10 +203,10 @@ MODULE chem_gasphase_mod
   INTEGER, PARAMETER :: indf_h2o = 1 
 
 ! NJVRP - Length of sparse Jacobian JVRP
-  INTEGER, PARAMETER :: njvrp = 38 
+  INTEGER, PARAMETER :: njvrp = 53 
 
 ! NSTOICM - Length of Sparse Stoichiometric Matrix
-  INTEGER, PARAMETER :: nstoicm = 55 
+  INTEGER, PARAMETER :: nstoicm = 61 
 
 
 ! ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -300,37 +300,39 @@ MODULE chem_gasphase_mod
 ! Sparse Jacobian Data
 
 
-  INTEGER, PARAMETER, DIMENSION(101):: lu_irow =  (/ &
-       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11, &
-      11, 12, 12, 12, 13, 13, 13, 14, 14, 14, 15, 15, &
-      15, 16, 16, 16, 17, 17, 17, 18, 18, 19, 19, 20, &
-      20, 21, 21, 22, 22, 22, 22, 23, 23, 23, 23, 24, &
-      24, 24, 25, 25, 25, 25, 25, 25, 26, 26, 26, 26, &
-      26, 26, 27, 27, 27, 27, 27, 27, 27, 28, 28, 28, &
-      28, 28, 29, 29, 29, 29, 29, 30, 30, 30, 30, 30, &
-      30, 30, 31, 31, 31, 31, 31, 31, 32, 32, 32, 32, &
-      32, 32, 33, 33, 33 /) 
+  INTEGER, PARAMETER, DIMENSION(109):: lu_irow =  (/ &
+       1, 2, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, &
+       5, 5, 5, 5, 5, 6, 7, 8, 9, 10, 11, 12, &
+      12, 12, 13, 13, 13, 14, 14, 14, 15, 15, 15, 16, &
+      16, 16, 17, 17, 18, 18, 18, 19, 19, 19, 19, 20, &
+      20, 20, 20, 21, 21, 22, 22, 23, 23, 24, 24, 24, &
+      24, 25, 25, 25, 25, 26, 26, 26, 26, 27, 27, 27, &
+      27, 27, 27, 27, 28, 28, 28, 29, 29, 29, 29, 30, &
+      30, 30, 30, 30, 30, 31, 31, 31, 31, 31, 31, 31, &
+      31, 31, 32, 32, 32, 32, 32, 32, 33, 33, 33, 33, &
+      33 /) 
 
-  INTEGER, PARAMETER, DIMENSION(101):: lu_icol =  (/ &
-       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 25, &
-      27, 12, 23, 26, 13, 20, 27, 14, 21, 30, 15, 22, &
-      32, 16, 30, 31, 17, 18, 30, 18, 30, 19, 27, 20, &
-      27, 21, 30, 21, 22, 30, 32, 19, 23, 26, 27, 24, &
-      25, 26, 23, 24, 25, 26, 27, 28, 23, 24, 25, 26, &
-      27, 28, 19, 20, 24, 25, 26, 27, 28, 20, 23, 26, &
-      27, 28, 18, 22, 29, 30, 32, 18, 21, 29, 30, 31, &
-      32, 33, 22, 29, 30, 31, 32, 33, 22, 29, 30, 31, &
-      32, 33, 31, 32, 33 /) 
+  INTEGER, PARAMETER, DIMENSION(109):: lu_icol =  (/ &
+       1, 2, 3, 4, 5, 22, 23, 30, 32, 4, 26, 32, &
+       5, 17, 20, 31, 32, 6, 7, 8, 9, 10, 11, 12, &
+      30, 31, 13, 23, 31, 14, 24, 31, 15, 25, 31, 16, &
+      17, 31, 17, 31, 18, 19, 31, 19, 20, 31, 32, 20, &
+      21, 31, 32, 21, 31, 22, 31, 23, 31, 24, 29, 31, &
+      32, 25, 27, 28, 31, 26, 27, 29, 33, 25, 26, 27, &
+      28, 29, 31, 33, 28, 30, 32, 22, 29, 31, 32, 28, &
+      29, 30, 31, 32, 33, 22, 23, 24, 28, 29, 30, 31, &
+      32, 33, 28, 29, 30, 31, 32, 33, 23, 29, 31, 32, &
+      33 /) 
 
   INTEGER, PARAMETER, DIMENSION(34):: lu_crow =  (/ &
-       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, &
-      17, 20, 23, 26, 29, 32, 34, 36, 38, 40, 44, 48, &
-      51, 57, 63, 70, 75, 80, 87, 93, 99, 102 /) 
+       1, 2, 3, 10, 13, 18, 19, 20, 21, 22, 23, 24, &
+      27, 30, 33, 36, 39, 41, 44, 48, 52, 54, 56, 58, &
+      62, 66, 70, 77, 80, 84, 90, 99, 105, 110 /) 
 
   INTEGER, PARAMETER, DIMENSION(34):: lu_diag =  (/ &
-       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, &
-      17, 20, 23, 26, 29, 32, 34, 36, 38, 41, 45, 48, &
-      53, 60, 68, 74, 77, 83, 90, 97, 101, 102 /) 
+       1, 2, 3, 10, 13, 18, 19, 20, 21, 22, 23, 24, &
+      27, 30, 33, 36, 39, 41, 44, 48, 52, 54, 56, 58, &
+      62, 66, 72, 77, 81, 86, 96, 103, 109, 110 /) 
 
 
 
@@ -359,46 +361,56 @@ MODULE chem_gasphase_mod
 
 
   CHARACTER(len=15), PARAMETER, DIMENSION(34):: spc_names =  (/ &
-     'NH3            ','OCNV           ','OCSV           ',&
-     'NH3_tra        ','OCNV_tra       ','OCSV_tra       ',&
-     'PM10           ','PM25           ','PM10_tra       ',&
-     'PM25_tra       ','HNO3           ','RCHO           ',&
-     'H2SO4          ','H2O_tra        ','RCHO_tra       ',&
-     'HNO3_tra       ','H2SO4_tra      ','SO2_tra        ',&
-     'RH             ','SO2            ','RH_tra         ',&
-     'RO2_tra        ','RO2            ','O3             ',&
-     'NO2            ','NO             ','OH             ',&
-     'HO2            ','HO2_tra        ','OH_tra         ',&
-     'NO2_tra        ','NO_tra         ','O3_tra         ',&
+     'NH3            ','OCNV           ','OH_tra         ',&
+     'O3_tra         ','HO2_tra        ','NH3_tra        ',&
+     'OCNV_tra       ','PM10           ','PM25           ',&
+     'PM10_tra       ','PM25_tra       ','HNO3           ',&
+     'H2SO4          ','OCSV           ','HNO3_tra       ',&
+     'H2SO4_tra      ','SO2_tra        ','OCSV_tra       ',&
+     'RCHO_tra       ','RO2_tra        ','RH_tra         ',&
+     'RH             ','SO2            ','RCHO           ',&
+     'NO2_tra        ','NO2_x_tra      ','NO_tra         ',&
+     'O3             ','RO2            ','NO2            ',&
+     'OH             ','NO             ','HO2            ',&
      'H2O            ' /)
 
-  CHARACTER(len=100), PARAMETER, DIMENSION(26):: eqn_names =  (/ &
-     '             NO2 --> O3 + NO                                                                        ',&
-     '        O3 + H2O --> 2 OH                                                                           ',&
-     '         O3 + NO --> NO2                                                                            ',&
-     '         RH + OH --> RO2 + H2O                                                                      ',&
-     '        RO2 + NO --> RCHO + NO2 + HO2                                                               ',&
-     '        NO + HO2 --> NO2 + OH                                                                       ',&
-     '        NO2 + OH --> HNO3                                                                           ',&
-     '        SO2 + OH --> H2SO4 + HO2                                                                    ',&
-     '             NH3 --> NH3                                                                            ',&
-     '            OCNV --> OCNV                                                                           ',&
-     '            OCSV --> OCSV                                                                           ',&
-     '         NO2_tra --> NO_tra + O3_tra                                                                ',&
-     '    O3_tra + H2O --> 2 OH_tra                                                                       ',&
-     ' NO_tra + O3_tra --> NO2_tra                                                                        ',&
-     ' RH_tra + OH_tra --> H2O_tra + RO2_tra                                                              ',&
-     'RO2_tra + NO_tra --> RCHO_tra + HO2_tra + NO2_tra                                                   ',&
-     'HO2_tra + NO_tra --> OH_tra + NO2_tra                                                               ',&
-     'OH_tra + NO2_tra --> HNO3_tra                                                                       ',&
-     'SO2_tra + OH_tra --> H2SO4_tra + HO2_tra                                                            ',&
-     '         NH3_tra --> NH3_tra                                                                        ',&
-     '        OCNV_tra --> OCNV_tra                                                                       ',&
-     '        OCSV_tra --> OCSV_tra                                                                       ',&
-     '            PM10 --> PM10                                                                           ',&
-     '            PM25 --> PM25                                                                           ',&
-     '        PM10_tra --> PM10_tra                                                                       ',&
-     '        PM25_tra --> PM25_tra                                                                       ' /)
+  CHARACTER(len=100), PARAMETER, DIMENSION(30):: eqn_names_0 =  (/ &
+     '          NO2 --> O3 + NO                                                                           ',&
+     '     O3 + H2O --> 2 OH                                                                              ',&
+     '      O3 + NO --> NO2                                                                               ',&
+     '      RH + OH --> RO2 + H2O                                                                         ',&
+     '     RO2 + NO --> RCHO + NO2 + HO2                                                                  ',&
+     '     NO + HO2 --> NO2 + OH                                                                          ',&
+     '     NO2 + OH --> HNO3                                                                              ',&
+     '     SO2 + OH --> H2SO4 + HO2                                                                       ',&
+     '          NH3 --> NH3                                                                               ',&
+     '         OCNV --> OCNV                                                                              ',&
+     '    RCHO + OH --> OCSV                                                                              ',&
+     '  NO_tra + O3 --> NO2_tra + O3                                                                      ',&
+     '      NO2_tra --> NO_tra                                                                            ',&
+     ' NO_tra + RO2 --> NO2_x_tra + RO2                                                                   ',&
+     ' NO_tra + HO2 --> NO2_x_tra + HO2                                                                   ',&
+     '    NO2_x_tra --> O3_tra + NO_tra                                                                   ',&
+     ' O3_tra + H2O --> 2 OH_tra                                                                          ',&
+     '  O3_tra + NO --> NO                                                                                ',&
+     '  RH_tra + OH --> RO2_tra + OH + H2O                                                                ',&
+     ' RO2_tra + NO --> HO2_tra + RCHO_tra + NO                                                           ',&
+     ' HO2_tra + NO --> OH_tra + NO                                                                       ',&
+     ' NO2_tra + OH --> HNO3_tra + OH                                                                     ',&
+     ' SO2_tra + OH --> HO2_tra + H2SO4_tra + OH                                                          ',&
+     'RCHO_tra + OH --> OCSV_tra + OH                                                                     ',&
+     '  OH_tra + RH --> RH                                                                                ',&
+     ' OH_tra + NO2 --> NO2                                                                               ',&
+     ' OH_tra + SO2 --> SO2                                                                               ',&
+     '      NH3_tra --> NH3_tra                                                                           ',&
+     '     OCNV_tra --> OCNV_tra                                                                          ',&
+     '         PM10 --> PM10                                                                              ' /)
+  CHARACTER(len=100), PARAMETER, DIMENSION(3):: eqn_names_1 =  (/ &
+     '         PM25 --> PM25                                                                              ',&
+     '     PM10_tra --> PM10_tra                                                                          ',&
+     '     PM25_tra --> PM25_tra                                                                          ' /)
+  CHARACTER(len=100), PARAMETER, DIMENSION(33):: eqn_names =  (/&
+    eqn_names_0, eqn_names_1 /) 
 
 ! INLINED global variables
 
@@ -852,57 +864,66 @@ SUBROUTINE fun(v, f, rct, vdot)
    IF ( rct(nreact) >= 0.0_wp )  CONTINUE
 !  
 ! Computation of equation rates
-  a(1) = rct(1) * v(25)
-  a(2) = rct(2) * v(24) * f(1)
-  a(3) = rct(3) * v(24) * v(26)
-  a(4) = rct(4) * v(19) * v(27)
-  a(5) = rct(5) * v(23) * v(26)
-  a(6) = rct(6) * v(26) * v(28)
-  a(7) = rct(7) * v(25) * v(27)
-  a(8) = rct(8) * v(20) * v(27)
-  a(12) = rct(12) * v(31)
-  a(13) = rct(13) * v(33) * f(1)
-  a(14) = rct(14) * v(32) * v(33)
-  a(15) = rct(15) * v(21) * v(30)
-  a(16) = rct(16) * v(22) * v(32)
-  a(17) = rct(17) * v(29) * v(32)
-  a(18) = rct(18) * v(30) * v(31)
-  a(19) = rct(19) * v(18) * v(30)
+  a(1) = rct(1) * v(30)
+  a(2) = rct(2) * v(28) * f(1)
+  a(3) = rct(3) * v(28) * v(32)
+  a(4) = rct(4) * v(22) * v(31)
+  a(5) = rct(5) * v(29) * v(32)
+  a(6) = rct(6) * v(32) * v(33)
+  a(7) = rct(7) * v(30) * v(31)
+  a(8) = rct(8) * v(23) * v(31)
+  a(11) = rct(11) * v(24) * v(31)
+  a(12) = rct(12) * v(27) * v(28)
+  a(13) = rct(13) * v(25)
+  a(14) = rct(14) * v(27) * v(29)
+  a(15) = rct(15) * v(27) * v(33)
+  a(16) = rct(16) * v(26)
+  a(17) = rct(17) * v(4) * f(1)
+  a(18) = rct(18) * v(4) * v(32)
+  a(19) = rct(19) * v(21) * v(31)
+  a(20) = rct(20) * v(20) * v(32)
+  a(21) = rct(21) * v(5) * v(32)
+  a(22) = rct(22) * v(25) * v(31)
+  a(23) = rct(23) * v(17) * v(31)
+  a(24) = rct(24) * v(19) * v(31)
+  a(25) = rct(25) * v(3) * v(22)
+  a(26) = rct(26) * v(3) * v(30)
+  a(27) = rct(27) * v(3) * v(23)
 
 ! Aggregate function
   vdot(1) = 0
   vdot(2) = 0
-  vdot(3) = 0
-  vdot(4) = 0
-  vdot(5) = 0
+  vdot(3) = 2* a(17) + a(21) - a(25) - a(26) - a(27)
+  vdot(4) = a(16) - a(17) - a(18)
+  vdot(5) = a(20) - a(21) + a(23)
   vdot(6) = 0
   vdot(7) = 0
   vdot(8) = 0
   vdot(9) = 0
   vdot(10) = 0
-  vdot(11) = a(7)
-  vdot(12) = a(5)
+  vdot(11) = 0
+  vdot(12) = a(7)
   vdot(13) = a(8)
-  vdot(14) = a(15)
-  vdot(15) = a(16)
-  vdot(16) = a(18)
-  vdot(17) = a(19)
-  vdot(18) = - a(19)
-  vdot(19) = - a(4)
-  vdot(20) = - a(8)
-  vdot(21) = - a(15)
-  vdot(22) = a(15) - a(16)
-  vdot(23) = a(4) - a(5)
-  vdot(24) = a(1) - a(2) - a(3)
-  vdot(25) = - a(1) + a(3) + a(5) + a(6) - a(7)
-  vdot(26) = a(1) - a(3) - a(5) - a(6)
-  vdot(27) = 2* a(2) - a(4) + a(6) - a(7) - a(8)
-  vdot(28) = a(5) - a(6) + a(8)
-  vdot(29) = a(16) - a(17) + a(19)
-  vdot(30) = 2* a(13) - a(15) + a(17) - a(18) - a(19)
-  vdot(31) = - a(12) + a(14) + a(16) + a(17) - a(18)
-  vdot(32) = a(12) - a(14) - a(16) - a(17)
-  vdot(33) = a(12) - a(13) - a(14)
+  vdot(14) = a(11)
+  vdot(15) = a(22)
+  vdot(16) = a(23)
+  vdot(17) = - a(23)
+  vdot(18) = a(24)
+  vdot(19) = a(20) - a(24)
+  vdot(20) = a(19) - a(20)
+  vdot(21) = - a(19)
+  vdot(22) = - a(4)
+  vdot(23) = - a(8)
+  vdot(24) = a(5) - a(11)
+  vdot(25) = a(12) - a(13) - a(22)
+  vdot(26) = a(14) + a(15) - a(16)
+  vdot(27) = - a(12) + a(13) - a(14) - a(15) + a(16)
+  vdot(28) = a(1) - a(2) - a(3)
+  vdot(29) = a(4) - a(5)
+  vdot(30) = - a(1) + a(3) + a(5) + a(6) - a(7)
+  vdot(31) = 2* a(2) - a(4) + a(6) - a(7) - a(8) - a(11)
+  vdot(32) = a(1) - a(3) - a(5) - a(6)
+  vdot(33) = a(5) - a(6) + a(8)
       
 END SUBROUTINE fun
  
@@ -913,48 +934,43 @@ SUBROUTINE kppsolve(jvs, x)
 ! X - Vector for variables
   REAL(kind=wp):: x(nvar)
 
-  x(22) = x(22) - jvs(40) * x(21)
-  x(23) = x(23) - jvs(44) * x(19)
-  x(25) = x(25) - jvs(51) * x(23) - jvs(52) * x(24)
-  x(26) = x(26) - jvs(57) * x(23) - jvs(58) * x(24) - jvs(59) * x(25)
-  x(27) = x(27) - jvs(63) * x(19) - jvs(64) * x(20) - jvs(65) * x(24) - jvs(66) * x(25) - jvs(67) * x(26)
-  x(28) = x(28) - jvs(70) * x(20) - jvs(71) * x(23) - jvs(72) * x(26) - jvs(73) * x(27)
-  x(29) = x(29) - jvs(75) * x(18) - jvs(76) * x(22)
-  x(30) = x(30) - jvs(80) * x(18) - jvs(81) * x(21) - jvs(82) * x(29)
-  x(31) = x(31) - jvs(87) * x(22) - jvs(88) * x(29) - jvs(89) * x(30)
-  x(32) = x(32) - jvs(93) * x(22) - jvs(94) * x(29) - jvs(95) * x(30) - jvs(96) * x(31)
-  x(33) = x(33) - jvs(99) * x(31) - jvs(100) * x(32)
-  x(33) = x(33) / jvs(101)
-  x(32) = (x(32) - jvs(98) * x(33)) /(jvs(97))
-  x(31) = (x(31) - jvs(91) * x(32) - jvs(92) * x(33)) /(jvs(90))
-  x(30) = (x(30) - jvs(84) * x(31) - jvs(85) * x(32) - jvs(86) * x(33)) /(jvs(83))
-  x(29) = (x(29) - jvs(78) * x(30) - jvs(79) * x(32)) /(jvs(77))
-  x(28) = x(28) / jvs(74)
-  x(27) = (x(27) - jvs(69) * x(28)) /(jvs(68))
-  x(26) = (x(26) - jvs(61) * x(27) - jvs(62) * x(28)) /(jvs(60))
-  x(25) = (x(25) - jvs(54) * x(26) - jvs(55) * x(27) - jvs(56) * x(28)) /(jvs(53))
-  x(24) = (x(24) - jvs(49) * x(25) - jvs(50) * x(26)) /(jvs(48))
-  x(23) = (x(23) - jvs(46) * x(26) - jvs(47) * x(27)) /(jvs(45))
-  x(22) = (x(22) - jvs(42) * x(30) - jvs(43) * x(32)) /(jvs(41))
-  x(21) = (x(21) - jvs(39) * x(30)) /(jvs(38))
-  x(20) = (x(20) - jvs(37) * x(27)) /(jvs(36))
-  x(19) = (x(19) - jvs(35) * x(27)) /(jvs(34))
-  x(18) = (x(18) - jvs(33) * x(30)) /(jvs(32))
-  x(17) = (x(17) - jvs(30) * x(18) - jvs(31) * x(30)) /(jvs(29))
-  x(16) = (x(16) - jvs(27) * x(30) - jvs(28) * x(31)) /(jvs(26))
-  x(15) = (x(15) - jvs(24) * x(22) - jvs(25) * x(32)) /(jvs(23))
-  x(14) = (x(14) - jvs(21) * x(21) - jvs(22) * x(30)) /(jvs(20))
-  x(13) = (x(13) - jvs(18) * x(20) - jvs(19) * x(27)) /(jvs(17))
-  x(12) = (x(12) - jvs(15) * x(23) - jvs(16) * x(26)) /(jvs(14))
-  x(11) = (x(11) - jvs(12) * x(25) - jvs(13) * x(27)) /(jvs(11))
-  x(10) = x(10) / jvs(10)
-  x(9) = x(9) / jvs(9)
-  x(8) = x(8) / jvs(8)
-  x(7) = x(7) / jvs(7)
-  x(6) = x(6) / jvs(6)
-  x(5) = x(5) / jvs(5)
-  x(4) = x(4) / jvs(4)
-  x(3) = x(3) / jvs(3)
+  x(27) = x(27) - jvs(70) * x(25) - jvs(71) * x(26)
+  x(29) = x(29) - jvs(80) * x(22)
+  x(30) = x(30) - jvs(84) * x(28) - jvs(85) * x(29)
+  x(31) = x(31) - jvs(90) * x(22) - jvs(91) * x(23) - jvs(92) * x(24) - jvs(93) * x(28) - jvs(94) * x(29) - jvs(95) * x(30)
+  x(32) = x(32) - jvs(99) * x(28) - jvs(100) * x(29) - jvs(101) * x(30) - jvs(102) * x(31)
+  x(33) = x(33) - jvs(105) * x(23) - jvs(106) * x(29) - jvs(107) * x(31) - jvs(108) * x(32)
+  x(33) = x(33) / jvs(109)
+  x(32) = (x(32) - jvs(104) * x(33)) /(jvs(103))
+  x(31) = (x(31) - jvs(97) * x(32) - jvs(98) * x(33)) /(jvs(96))
+  x(30) = (x(30) - jvs(87) * x(31) - jvs(88) * x(32) - jvs(89) * x(33)) /(jvs(86))
+  x(29) = (x(29) - jvs(82) * x(31) - jvs(83) * x(32)) /(jvs(81))
+  x(28) = (x(28) - jvs(78) * x(30) - jvs(79) * x(32)) /(jvs(77))
+  x(27) = (x(27) - jvs(73) * x(28) - jvs(74) * x(29) - jvs(75) * x(31) - jvs(76) * x(33)) /(jvs(72))
+  x(26) = (x(26) - jvs(67) * x(27) - jvs(68) * x(29) - jvs(69) * x(33)) /(jvs(66))
+  x(25) = (x(25) - jvs(63) * x(27) - jvs(64) * x(28) - jvs(65) * x(31)) /(jvs(62))
+  x(24) = (x(24) - jvs(59) * x(29) - jvs(60) * x(31) - jvs(61) * x(32)) /(jvs(58))
+  x(23) = (x(23) - jvs(57) * x(31)) /(jvs(56))
+  x(22) = (x(22) - jvs(55) * x(31)) /(jvs(54))
+  x(21) = (x(21) - jvs(53) * x(31)) /(jvs(52))
+  x(20) = (x(20) - jvs(49) * x(21) - jvs(50) * x(31) - jvs(51) * x(32)) /(jvs(48))
+  x(19) = (x(19) - jvs(45) * x(20) - jvs(46) * x(31) - jvs(47) * x(32)) /(jvs(44))
+  x(18) = (x(18) - jvs(42) * x(19) - jvs(43) * x(31)) /(jvs(41))
+  x(17) = (x(17) - jvs(40) * x(31)) /(jvs(39))
+  x(16) = (x(16) - jvs(37) * x(17) - jvs(38) * x(31)) /(jvs(36))
+  x(15) = (x(15) - jvs(34) * x(25) - jvs(35) * x(31)) /(jvs(33))
+  x(14) = (x(14) - jvs(31) * x(24) - jvs(32) * x(31)) /(jvs(30))
+  x(13) = (x(13) - jvs(28) * x(23) - jvs(29) * x(31)) /(jvs(27))
+  x(12) = (x(12) - jvs(25) * x(30) - jvs(26) * x(31)) /(jvs(24))
+  x(11) = x(11) / jvs(23)
+  x(10) = x(10) / jvs(22)
+  x(9) = x(9) / jvs(21)
+  x(8) = x(8) / jvs(20)
+  x(7) = x(7) / jvs(19)
+  x(6) = x(6) / jvs(18)
+  x(5) = (x(5) - jvs(14) * x(17) - jvs(15) * x(20) - jvs(16) * x(31) - jvs(17) * x(32)) /(jvs(13))
+  x(4) = (x(4) - jvs(11) * x(26) - jvs(12) * x(32)) /(jvs(10))
+  x(3) = (x(3) - jvs(4) * x(4) - jvs(5) * x(5) - jvs(6) * x(22) - jvs(7) * x(23) - jvs(8) * x(30) - jvs(9) * x(32)) /(jvs(3))
   x(2) = x(2) / jvs(2)
   x(1) = x(1) / jvs(1)
       
@@ -974,88 +990,118 @@ SUBROUTINE jac_sp(v, f, rct, jvs)
 
 ! Local variables
 ! B - Temporary array
-  REAL(kind=wp):: b(40)
+  REAL(kind=wp):: b(55)
 !
 ! The following lines are just to avoid compiler message about unused variables
    IF ( f(nfix) >= 0.0_wp )  CONTINUE
    IF ( v(nvar) >= 0.0_wp )  CONTINUE
 
-! B(1) = dA(1)/dV(25)
+! B(1) = dA(1)/dV(30)
   b(1) = rct(1)
-! B(2) = dA(2)/dV(24)
+! B(2) = dA(2)/dV(28)
   b(2) = rct(2) * f(1)
-! B(4) = dA(3)/dV(24)
-  b(4) = rct(3) * v(26)
-! B(5) = dA(3)/dV(26)
-  b(5) = rct(3) * v(24)
-! B(6) = dA(4)/dV(19)
-  b(6) = rct(4) * v(27)
-! B(7) = dA(4)/dV(27)
-  b(7) = rct(4) * v(19)
-! B(8) = dA(5)/dV(23)
-  b(8) = rct(5) * v(26)
-! B(9) = dA(5)/dV(26)
-  b(9) = rct(5) * v(23)
-! B(10) = dA(6)/dV(26)
-  b(10) = rct(6) * v(28)
-! B(11) = dA(6)/dV(28)
-  b(11) = rct(6) * v(26)
-! B(12) = dA(7)/dV(25)
-  b(12) = rct(7) * v(27)
-! B(13) = dA(7)/dV(27)
-  b(13) = rct(7) * v(25)
-! B(14) = dA(8)/dV(20)
-  b(14) = rct(8) * v(27)
-! B(15) = dA(8)/dV(27)
-  b(15) = rct(8) * v(20)
+! B(4) = dA(3)/dV(28)
+  b(4) = rct(3) * v(32)
+! B(5) = dA(3)/dV(32)
+  b(5) = rct(3) * v(28)
+! B(6) = dA(4)/dV(22)
+  b(6) = rct(4) * v(31)
+! B(7) = dA(4)/dV(31)
+  b(7) = rct(4) * v(22)
+! B(8) = dA(5)/dV(29)
+  b(8) = rct(5) * v(32)
+! B(9) = dA(5)/dV(32)
+  b(9) = rct(5) * v(29)
+! B(10) = dA(6)/dV(32)
+  b(10) = rct(6) * v(33)
+! B(11) = dA(6)/dV(33)
+  b(11) = rct(6) * v(32)
+! B(12) = dA(7)/dV(30)
+  b(12) = rct(7) * v(31)
+! B(13) = dA(7)/dV(31)
+  b(13) = rct(7) * v(30)
+! B(14) = dA(8)/dV(23)
+  b(14) = rct(8) * v(31)
+! B(15) = dA(8)/dV(31)
+  b(15) = rct(8) * v(23)
 ! B(16) = dA(9)/dV(1)
   b(16) = rct(9)
 ! B(17) = dA(10)/dV(2)
   b(17) = rct(10)
-! B(18) = dA(11)/dV(3)
-  b(18) = rct(11)
-! B(19) = dA(12)/dV(31)
-  b(19) = rct(12)
-! B(20) = dA(13)/dV(33)
-  b(20) = rct(13) * f(1)
-! B(22) = dA(14)/dV(32)
-  b(22) = rct(14) * v(33)
-! B(23) = dA(14)/dV(33)
-  b(23) = rct(14) * v(32)
-! B(24) = dA(15)/dV(21)
-  b(24) = rct(15) * v(30)
-! B(25) = dA(15)/dV(30)
-  b(25) = rct(15) * v(21)
-! B(26) = dA(16)/dV(22)
-  b(26) = rct(16) * v(32)
-! B(27) = dA(16)/dV(32)
-  b(27) = rct(16) * v(22)
-! B(28) = dA(17)/dV(29)
-  b(28) = rct(17) * v(32)
-! B(29) = dA(17)/dV(32)
-  b(29) = rct(17) * v(29)
-! B(30) = dA(18)/dV(30)
-  b(30) = rct(18) * v(31)
-! B(31) = dA(18)/dV(31)
-  b(31) = rct(18) * v(30)
-! B(32) = dA(19)/dV(18)
-  b(32) = rct(19) * v(30)
-! B(33) = dA(19)/dV(30)
-  b(33) = rct(19) * v(18)
-! B(34) = dA(20)/dV(4)
-  b(34) = rct(20)
-! B(35) = dA(21)/dV(5)
-  b(35) = rct(21)
-! B(36) = dA(22)/dV(6)
-  b(36) = rct(22)
-! B(37) = dA(23)/dV(7)
-  b(37) = rct(23)
-! B(38) = dA(24)/dV(8)
-  b(38) = rct(24)
-! B(39) = dA(25)/dV(9)
-  b(39) = rct(25)
-! B(40) = dA(26)/dV(10)
-  b(40) = rct(26)
+! B(18) = dA(11)/dV(24)
+  b(18) = rct(11) * v(31)
+! B(19) = dA(11)/dV(31)
+  b(19) = rct(11) * v(24)
+! B(20) = dA(12)/dV(27)
+  b(20) = rct(12) * v(28)
+! B(21) = dA(12)/dV(28)
+  b(21) = rct(12) * v(27)
+! B(22) = dA(13)/dV(25)
+  b(22) = rct(13)
+! B(23) = dA(14)/dV(27)
+  b(23) = rct(14) * v(29)
+! B(24) = dA(14)/dV(29)
+  b(24) = rct(14) * v(27)
+! B(25) = dA(15)/dV(27)
+  b(25) = rct(15) * v(33)
+! B(26) = dA(15)/dV(33)
+  b(26) = rct(15) * v(27)
+! B(27) = dA(16)/dV(26)
+  b(27) = rct(16)
+! B(28) = dA(17)/dV(4)
+  b(28) = rct(17) * f(1)
+! B(30) = dA(18)/dV(4)
+  b(30) = rct(18) * v(32)
+! B(31) = dA(18)/dV(32)
+  b(31) = rct(18) * v(4)
+! B(32) = dA(19)/dV(21)
+  b(32) = rct(19) * v(31)
+! B(33) = dA(19)/dV(31)
+  b(33) = rct(19) * v(21)
+! B(34) = dA(20)/dV(20)
+  b(34) = rct(20) * v(32)
+! B(35) = dA(20)/dV(32)
+  b(35) = rct(20) * v(20)
+! B(36) = dA(21)/dV(5)
+  b(36) = rct(21) * v(32)
+! B(37) = dA(21)/dV(32)
+  b(37) = rct(21) * v(5)
+! B(38) = dA(22)/dV(25)
+  b(38) = rct(22) * v(31)
+! B(39) = dA(22)/dV(31)
+  b(39) = rct(22) * v(25)
+! B(40) = dA(23)/dV(17)
+  b(40) = rct(23) * v(31)
+! B(41) = dA(23)/dV(31)
+  b(41) = rct(23) * v(17)
+! B(42) = dA(24)/dV(19)
+  b(42) = rct(24) * v(31)
+! B(43) = dA(24)/dV(31)
+  b(43) = rct(24) * v(19)
+! B(44) = dA(25)/dV(3)
+  b(44) = rct(25) * v(22)
+! B(45) = dA(25)/dV(22)
+  b(45) = rct(25) * v(3)
+! B(46) = dA(26)/dV(3)
+  b(46) = rct(26) * v(30)
+! B(47) = dA(26)/dV(30)
+  b(47) = rct(26) * v(3)
+! B(48) = dA(27)/dV(3)
+  b(48) = rct(27) * v(23)
+! B(49) = dA(27)/dV(23)
+  b(49) = rct(27) * v(3)
+! B(50) = dA(28)/dV(6)
+  b(50) = rct(28)
+! B(51) = dA(29)/dV(7)
+  b(51) = rct(29)
+! B(52) = dA(30)/dV(8)
+  b(52) = rct(30)
+! B(53) = dA(31)/dV(9)
+  b(53) = rct(31)
+! B(54) = dA(32)/dV(10)
+  b(54) = rct(32)
+! B(55) = dA(33)/dV(11)
+  b(55) = rct(33)
 
 ! Construct the Jacobian terms from B's
 ! JVS(1) = Jac_FULL(1,1)
@@ -1063,203 +1109,219 @@ SUBROUTINE jac_sp(v, f, rct, jvs)
 ! JVS(2) = Jac_FULL(2,2)
   jvs(2) = 0
 ! JVS(3) = Jac_FULL(3,3)
-  jvs(3) = 0
-! JVS(4) = Jac_FULL(4,4)
-  jvs(4) = 0
-! JVS(5) = Jac_FULL(5,5)
-  jvs(5) = 0
-! JVS(6) = Jac_FULL(6,6)
-  jvs(6) = 0
-! JVS(7) = Jac_FULL(7,7)
-  jvs(7) = 0
-! JVS(8) = Jac_FULL(8,8)
-  jvs(8) = 0
-! JVS(9) = Jac_FULL(9,9)
-  jvs(9) = 0
-! JVS(10) = Jac_FULL(10,10)
-  jvs(10) = 0
-! JVS(11) = Jac_FULL(11,11)
-  jvs(11) = 0
-! JVS(12) = Jac_FULL(11,25)
-  jvs(12) = b(12)
-! JVS(13) = Jac_FULL(11,27)
-  jvs(13) = b(13)
-! JVS(14) = Jac_FULL(12,12)
-  jvs(14) = 0
-! JVS(15) = Jac_FULL(12,23)
-  jvs(15) = b(8)
-! JVS(16) = Jac_FULL(12,26)
-  jvs(16) = b(9)
-! JVS(17) = Jac_FULL(13,13)
-  jvs(17) = 0
-! JVS(18) = Jac_FULL(13,20)
-  jvs(18) = b(14)
-! JVS(19) = Jac_FULL(13,27)
-  jvs(19) = b(15)
-! JVS(20) = Jac_FULL(14,14)
+  jvs(3) = - b(44) - b(46) - b(48)
+! JVS(4) = Jac_FULL(3,4)
+  jvs(4) = 2* b(28)
+! JVS(5) = Jac_FULL(3,5)
+  jvs(5) = b(36)
+! JVS(6) = Jac_FULL(3,22)
+  jvs(6) = - b(45)
+! JVS(7) = Jac_FULL(3,23)
+  jvs(7) = - b(49)
+! JVS(8) = Jac_FULL(3,30)
+  jvs(8) = - b(47)
+! JVS(9) = Jac_FULL(3,32)
+  jvs(9) = b(37)
+! JVS(10) = Jac_FULL(4,4)
+  jvs(10) = - b(28) - b(30)
+! JVS(11) = Jac_FULL(4,26)
+  jvs(11) = b(27)
+! JVS(12) = Jac_FULL(4,32)
+  jvs(12) = - b(31)
+! JVS(13) = Jac_FULL(5,5)
+  jvs(13) = - b(36)
+! JVS(14) = Jac_FULL(5,17)
+  jvs(14) = b(40)
+! JVS(15) = Jac_FULL(5,20)
+  jvs(15) = b(34)
+! JVS(16) = Jac_FULL(5,31)
+  jvs(16) = b(41)
+! JVS(17) = Jac_FULL(5,32)
+  jvs(17) = b(35) - b(37)
+! JVS(18) = Jac_FULL(6,6)
+  jvs(18) = 0
+! JVS(19) = Jac_FULL(7,7)
+  jvs(19) = 0
+! JVS(20) = Jac_FULL(8,8)
   jvs(20) = 0
-! JVS(21) = Jac_FULL(14,21)
-  jvs(21) = b(24)
-! JVS(22) = Jac_FULL(14,30)
-  jvs(22) = b(25)
-! JVS(23) = Jac_FULL(15,15)
+! JVS(21) = Jac_FULL(9,9)
+  jvs(21) = 0
+! JVS(22) = Jac_FULL(10,10)
+  jvs(22) = 0
+! JVS(23) = Jac_FULL(11,11)
   jvs(23) = 0
-! JVS(24) = Jac_FULL(15,22)
-  jvs(24) = b(26)
-! JVS(25) = Jac_FULL(15,32)
-  jvs(25) = b(27)
-! JVS(26) = Jac_FULL(16,16)
-  jvs(26) = 0
-! JVS(27) = Jac_FULL(16,30)
-  jvs(27) = b(30)
-! JVS(28) = Jac_FULL(16,31)
-  jvs(28) = b(31)
-! JVS(29) = Jac_FULL(17,17)
-  jvs(29) = 0
-! JVS(30) = Jac_FULL(17,18)
-  jvs(30) = b(32)
-! JVS(31) = Jac_FULL(17,30)
-  jvs(31) = b(33)
-! JVS(32) = Jac_FULL(18,18)
-  jvs(32) = - b(32)
-! JVS(33) = Jac_FULL(18,30)
-  jvs(33) = - b(33)
-! JVS(34) = Jac_FULL(19,19)
-  jvs(34) = - b(6)
-! JVS(35) = Jac_FULL(19,27)
-  jvs(35) = - b(7)
-! JVS(36) = Jac_FULL(20,20)
-  jvs(36) = - b(14)
-! JVS(37) = Jac_FULL(20,27)
-  jvs(37) = - b(15)
-! JVS(38) = Jac_FULL(21,21)
-  jvs(38) = - b(24)
-! JVS(39) = Jac_FULL(21,30)
-  jvs(39) = - b(25)
-! JVS(40) = Jac_FULL(22,21)
-  jvs(40) = b(24)
-! JVS(41) = Jac_FULL(22,22)
-  jvs(41) = - b(26)
-! JVS(42) = Jac_FULL(22,30)
-  jvs(42) = b(25)
-! JVS(43) = Jac_FULL(22,32)
-  jvs(43) = - b(27)
-! JVS(44) = Jac_FULL(23,19)
-  jvs(44) = b(6)
-! JVS(45) = Jac_FULL(23,23)
-  jvs(45) = - b(8)
-! JVS(46) = Jac_FULL(23,26)
-  jvs(46) = - b(9)
-! JVS(47) = Jac_FULL(23,27)
-  jvs(47) = b(7)
-! JVS(48) = Jac_FULL(24,24)
-  jvs(48) = - b(2) - b(4)
-! JVS(49) = Jac_FULL(24,25)
-  jvs(49) = b(1)
-! JVS(50) = Jac_FULL(24,26)
-  jvs(50) = - b(5)
-! JVS(51) = Jac_FULL(25,23)
-  jvs(51) = b(8)
-! JVS(52) = Jac_FULL(25,24)
-  jvs(52) = b(4)
-! JVS(53) = Jac_FULL(25,25)
-  jvs(53) = - b(1) - b(12)
-! JVS(54) = Jac_FULL(25,26)
-  jvs(54) = b(5) + b(9) + b(10)
-! JVS(55) = Jac_FULL(25,27)
-  jvs(55) = - b(13)
-! JVS(56) = Jac_FULL(25,28)
-  jvs(56) = b(11)
-! JVS(57) = Jac_FULL(26,23)
-  jvs(57) = - b(8)
-! JVS(58) = Jac_FULL(26,24)
-  jvs(58) = - b(4)
-! JVS(59) = Jac_FULL(26,25)
-  jvs(59) = b(1)
-! JVS(60) = Jac_FULL(26,26)
-  jvs(60) = - b(5) - b(9) - b(10)
-! JVS(61) = Jac_FULL(26,27)
-  jvs(61) = 0
-! JVS(62) = Jac_FULL(26,28)
-  jvs(62) = - b(11)
-! JVS(63) = Jac_FULL(27,19)
-  jvs(63) = - b(6)
-! JVS(64) = Jac_FULL(27,20)
-  jvs(64) = - b(14)
-! JVS(65) = Jac_FULL(27,24)
-  jvs(65) = 2* b(2)
-! JVS(66) = Jac_FULL(27,25)
-  jvs(66) = - b(12)
-! JVS(67) = Jac_FULL(27,26)
-  jvs(67) = b(10)
-! JVS(68) = Jac_FULL(27,27)
-  jvs(68) = - b(7) - b(13) - b(15)
-! JVS(69) = Jac_FULL(27,28)
-  jvs(69) = b(11)
-! JVS(70) = Jac_FULL(28,20)
-  jvs(70) = b(14)
-! JVS(71) = Jac_FULL(28,23)
-  jvs(71) = b(8)
-! JVS(72) = Jac_FULL(28,26)
-  jvs(72) = b(9) - b(10)
-! JVS(73) = Jac_FULL(28,27)
-  jvs(73) = b(15)
-! JVS(74) = Jac_FULL(28,28)
-  jvs(74) = - b(11)
-! JVS(75) = Jac_FULL(29,18)
-  jvs(75) = b(32)
-! JVS(76) = Jac_FULL(29,22)
-  jvs(76) = b(26)
-! JVS(77) = Jac_FULL(29,29)
-  jvs(77) = - b(28)
-! JVS(78) = Jac_FULL(29,30)
-  jvs(78) = b(33)
-! JVS(79) = Jac_FULL(29,32)
-  jvs(79) = b(27) - b(29)
-! JVS(80) = Jac_FULL(30,18)
-  jvs(80) = - b(32)
-! JVS(81) = Jac_FULL(30,21)
-  jvs(81) = - b(24)
-! JVS(82) = Jac_FULL(30,29)
-  jvs(82) = b(28)
-! JVS(83) = Jac_FULL(30,30)
-  jvs(83) = - b(25) - b(30) - b(33)
-! JVS(84) = Jac_FULL(30,31)
-  jvs(84) = - b(31)
-! JVS(85) = Jac_FULL(30,32)
-  jvs(85) = b(29)
-! JVS(86) = Jac_FULL(30,33)
-  jvs(86) = 2* b(20)
-! JVS(87) = Jac_FULL(31,22)
-  jvs(87) = b(26)
-! JVS(88) = Jac_FULL(31,29)
-  jvs(88) = b(28)
-! JVS(89) = Jac_FULL(31,30)
-  jvs(89) = - b(30)
-! JVS(90) = Jac_FULL(31,31)
-  jvs(90) = - b(19) - b(31)
-! JVS(91) = Jac_FULL(31,32)
-  jvs(91) = b(22) + b(27) + b(29)
-! JVS(92) = Jac_FULL(31,33)
-  jvs(92) = b(23)
-! JVS(93) = Jac_FULL(32,22)
-  jvs(93) = - b(26)
-! JVS(94) = Jac_FULL(32,29)
-  jvs(94) = - b(28)
-! JVS(95) = Jac_FULL(32,30)
-  jvs(95) = 0
-! JVS(96) = Jac_FULL(32,31)
-  jvs(96) = b(19)
-! JVS(97) = Jac_FULL(32,32)
-  jvs(97) = - b(22) - b(27) - b(29)
-! JVS(98) = Jac_FULL(32,33)
-  jvs(98) = - b(23)
-! JVS(99) = Jac_FULL(33,31)
-  jvs(99) = b(19)
-! JVS(100) = Jac_FULL(33,32)
-  jvs(100) = - b(22)
-! JVS(101) = Jac_FULL(33,33)
-  jvs(101) = - b(20) - b(23)
+! JVS(24) = Jac_FULL(12,12)
+  jvs(24) = 0
+! JVS(25) = Jac_FULL(12,30)
+  jvs(25) = b(12)
+! JVS(26) = Jac_FULL(12,31)
+  jvs(26) = b(13)
+! JVS(27) = Jac_FULL(13,13)
+  jvs(27) = 0
+! JVS(28) = Jac_FULL(13,23)
+  jvs(28) = b(14)
+! JVS(29) = Jac_FULL(13,31)
+  jvs(29) = b(15)
+! JVS(30) = Jac_FULL(14,14)
+  jvs(30) = 0
+! JVS(31) = Jac_FULL(14,24)
+  jvs(31) = b(18)
+! JVS(32) = Jac_FULL(14,31)
+  jvs(32) = b(19)
+! JVS(33) = Jac_FULL(15,15)
+  jvs(33) = 0
+! JVS(34) = Jac_FULL(15,25)
+  jvs(34) = b(38)
+! JVS(35) = Jac_FULL(15,31)
+  jvs(35) = b(39)
+! JVS(36) = Jac_FULL(16,16)
+  jvs(36) = 0
+! JVS(37) = Jac_FULL(16,17)
+  jvs(37) = b(40)
+! JVS(38) = Jac_FULL(16,31)
+  jvs(38) = b(41)
+! JVS(39) = Jac_FULL(17,17)
+  jvs(39) = - b(40)
+! JVS(40) = Jac_FULL(17,31)
+  jvs(40) = - b(41)
+! JVS(41) = Jac_FULL(18,18)
+  jvs(41) = 0
+! JVS(42) = Jac_FULL(18,19)
+  jvs(42) = b(42)
+! JVS(43) = Jac_FULL(18,31)
+  jvs(43) = b(43)
+! JVS(44) = Jac_FULL(19,19)
+  jvs(44) = - b(42)
+! JVS(45) = Jac_FULL(19,20)
+  jvs(45) = b(34)
+! JVS(46) = Jac_FULL(19,31)
+  jvs(46) = - b(43)
+! JVS(47) = Jac_FULL(19,32)
+  jvs(47) = b(35)
+! JVS(48) = Jac_FULL(20,20)
+  jvs(48) = - b(34)
+! JVS(49) = Jac_FULL(20,21)
+  jvs(49) = b(32)
+! JVS(50) = Jac_FULL(20,31)
+  jvs(50) = b(33)
+! JVS(51) = Jac_FULL(20,32)
+  jvs(51) = - b(35)
+! JVS(52) = Jac_FULL(21,21)
+  jvs(52) = - b(32)
+! JVS(53) = Jac_FULL(21,31)
+  jvs(53) = - b(33)
+! JVS(54) = Jac_FULL(22,22)
+  jvs(54) = - b(6)
+! JVS(55) = Jac_FULL(22,31)
+  jvs(55) = - b(7)
+! JVS(56) = Jac_FULL(23,23)
+  jvs(56) = - b(14)
+! JVS(57) = Jac_FULL(23,31)
+  jvs(57) = - b(15)
+! JVS(58) = Jac_FULL(24,24)
+  jvs(58) = - b(18)
+! JVS(59) = Jac_FULL(24,29)
+  jvs(59) = b(8)
+! JVS(60) = Jac_FULL(24,31)
+  jvs(60) = - b(19)
+! JVS(61) = Jac_FULL(24,32)
+  jvs(61) = b(9)
+! JVS(62) = Jac_FULL(25,25)
+  jvs(62) = - b(22) - b(38)
+! JVS(63) = Jac_FULL(25,27)
+  jvs(63) = b(20)
+! JVS(64) = Jac_FULL(25,28)
+  jvs(64) = b(21)
+! JVS(65) = Jac_FULL(25,31)
+  jvs(65) = - b(39)
+! JVS(66) = Jac_FULL(26,26)
+  jvs(66) = - b(27)
+! JVS(67) = Jac_FULL(26,27)
+  jvs(67) = b(23) + b(25)
+! JVS(68) = Jac_FULL(26,29)
+  jvs(68) = b(24)
+! JVS(69) = Jac_FULL(26,33)
+  jvs(69) = b(26)
+! JVS(70) = Jac_FULL(27,25)
+  jvs(70) = b(22)
+! JVS(71) = Jac_FULL(27,26)
+  jvs(71) = b(27)
+! JVS(72) = Jac_FULL(27,27)
+  jvs(72) = - b(20) - b(23) - b(25)
+! JVS(73) = Jac_FULL(27,28)
+  jvs(73) = - b(21)
+! JVS(74) = Jac_FULL(27,29)
+  jvs(74) = - b(24)
+! JVS(75) = Jac_FULL(27,31)
+  jvs(75) = 0
+! JVS(76) = Jac_FULL(27,33)
+  jvs(76) = - b(26)
+! JVS(77) = Jac_FULL(28,28)
+  jvs(77) = - b(2) - b(4)
+! JVS(78) = Jac_FULL(28,30)
+  jvs(78) = b(1)
+! JVS(79) = Jac_FULL(28,32)
+  jvs(79) = - b(5)
+! JVS(80) = Jac_FULL(29,22)
+  jvs(80) = b(6)
+! JVS(81) = Jac_FULL(29,29)
+  jvs(81) = - b(8)
+! JVS(82) = Jac_FULL(29,31)
+  jvs(82) = b(7)
+! JVS(83) = Jac_FULL(29,32)
+  jvs(83) = - b(9)
+! JVS(84) = Jac_FULL(30,28)
+  jvs(84) = b(4)
+! JVS(85) = Jac_FULL(30,29)
+  jvs(85) = b(8)
+! JVS(86) = Jac_FULL(30,30)
+  jvs(86) = - b(1) - b(12)
+! JVS(87) = Jac_FULL(30,31)
+  jvs(87) = - b(13)
+! JVS(88) = Jac_FULL(30,32)
+  jvs(88) = b(5) + b(9) + b(10)
+! JVS(89) = Jac_FULL(30,33)
+  jvs(89) = b(11)
+! JVS(90) = Jac_FULL(31,22)
+  jvs(90) = - b(6)
+! JVS(91) = Jac_FULL(31,23)
+  jvs(91) = - b(14)
+! JVS(92) = Jac_FULL(31,24)
+  jvs(92) = - b(18)
+! JVS(93) = Jac_FULL(31,28)
+  jvs(93) = 2* b(2)
+! JVS(94) = Jac_FULL(31,29)
+  jvs(94) = 0
+! JVS(95) = Jac_FULL(31,30)
+  jvs(95) = - b(12)
+! JVS(96) = Jac_FULL(31,31)
+  jvs(96) = - b(7) - b(13) - b(15) - b(19)
+! JVS(97) = Jac_FULL(31,32)
+  jvs(97) = b(10)
+! JVS(98) = Jac_FULL(31,33)
+  jvs(98) = b(11)
+! JVS(99) = Jac_FULL(32,28)
+  jvs(99) = - b(4)
+! JVS(100) = Jac_FULL(32,29)
+  jvs(100) = - b(8)
+! JVS(101) = Jac_FULL(32,30)
+  jvs(101) = b(1)
+! JVS(102) = Jac_FULL(32,31)
+  jvs(102) = 0
+! JVS(103) = Jac_FULL(32,32)
+  jvs(103) = - b(5) - b(9) - b(10)
+! JVS(104) = Jac_FULL(32,33)
+  jvs(104) = - b(11)
+! JVS(105) = Jac_FULL(33,23)
+  jvs(105) = b(14)
+! JVS(106) = Jac_FULL(33,29)
+  jvs(106) = b(8)
+! JVS(107) = Jac_FULL(33,31)
+  jvs(107) = b(15)
+! JVS(108) = Jac_FULL(33,32)
+  jvs(108) = b(9) - b(10)
+! JVS(109) = Jac_FULL(33,33)
+  jvs(109) = - b(11)
       
 END SUBROUTINE jac_sp
  
@@ -1283,22 +1345,29 @@ SUBROUTINE update_rconst()
   rconst(8) = (arr2(1.0e-12_wp , 0.0_wp , temp))
   rconst(9) = (1.0_wp)
   rconst(10) = (1.0_wp)
-  rconst(11) = (1.0_wp)
-  rconst(12) = (phot(j_no2))
-  rconst(13) = (2.0_wp * 2.2e-10_wp * phot(j_o31d) / (arr2(1.9e+8_wp , -390.0_wp , temp)))
-  rconst(14) = (arr2(1.80e-12_wp , 1370.0_wp , temp))
-  rconst(15) = (arr2(2.00e-11_wp , 500.0_wp , temp))
-  rconst(16) = (arr2(4.20e-12_wp , -180.0_wp , temp))
-  rconst(17) = (arr2(3.70e-12_wp , -240.0_wp , temp))
-  rconst(18) = (arr2(1.15e-11_wp , 0.0_wp , temp))
-  rconst(19) = (arr2(1.0e-12_wp , 0.0_wp , temp))
-  rconst(20) = (1.0_wp)
-  rconst(21) = (1.0_wp)
-  rconst(22) = (1.0_wp)
-  rconst(23) = (1.0_wp)
-  rconst(24) = (1.0_wp)
-  rconst(25) = (1.0_wp)
-  rconst(26) = (1.0_wp)
+  rconst(11) = (arr2(1.0e-11_wp , 0.0_wp , temp))
+  rconst(12) = (arr2(1.80e-12_wp , 1370.0_wp , temp))
+  rconst(13) = (phot(j_no2))
+  rconst(14) = (arr2(4.20e-12_wp , -180.0_wp , temp))
+  rconst(15) = (arr2(3.70e-12_wp , -240.0_wp , temp))
+  rconst(16) = (phot(j_no2))
+  rconst(17) = (2.0_wp * 2.2e-10_wp * phot(j_o31d) / (arr2(1.9e+8_wp , -390.0_wp , temp)))
+  rconst(18) = (arr2(1.80e-12_wp , 1370.0_wp , temp))
+  rconst(19) = (arr2(2.00e-11_wp , 500.0_wp , temp))
+  rconst(20) = (arr2(4.20e-12_wp , -180.0_wp , temp))
+  rconst(21) = (arr2(3.70e-12_wp , -240.0_wp , temp))
+  rconst(22) = (arr2(1.15e-11_wp , 0.0_wp , temp))
+  rconst(23) = (arr2(1.0e-12_wp , 0.0_wp , temp))
+  rconst(24) = (arr2(1.0e-11_wp , 0.0_wp , temp))
+  rconst(25) = (arr2(2.00e-11_wp , 500.0_wp , temp))
+  rconst(26) = (arr2(1.15e-11_wp , 0.0_wp , temp))
+  rconst(27) = (arr2(1.0e-12_wp , 0.0_wp , temp))
+  rconst(28) = (1.0_wp)
+  rconst(29) = (1.0_wp)
+  rconst(30) = (1.0_wp)
+  rconst(31) = (1.0_wp)
+  rconst(32) = (1.0_wp)
+  rconst(33) = (1.0_wp)
       
 END SUBROUTINE update_rconst
  
@@ -2757,77 +2826,58 @@ END SUBROUTINE jactemplate
 !   i = 20
 !   i = 21
 !   i = 22
-    jvs(40) = (jvs(40)) / jvs(38) 
-    jvs(42) = jvs(42) - jvs(39) * jvs(40)
 !   i = 23
-    jvs(44) = (jvs(44)) / jvs(34) 
-    jvs(47) = jvs(47) - jvs(35) * jvs(44)
 !   i = 24
 !   i = 25
-    jvs(51) = (jvs(51)) / jvs(45) 
-    jvs(52) = (jvs(52)) / jvs(48) 
-    jvs(53) = jvs(53) - jvs(49) * jvs(52)
-    jvs(54) = jvs(54) - jvs(46) * jvs(51) - jvs(50) * jvs(52)
-    jvs(55) = jvs(55) - jvs(47) * jvs(51)
 !   i = 26
-    jvs(57) = (jvs(57)) / jvs(45) 
-    jvs(58) = (jvs(58)) / jvs(48) 
-    a = 0.0; a = a  - jvs(49) * jvs(58)
-    jvs(59) = (jvs(59) + a) / jvs(53) 
-    jvs(60) = jvs(60) - jvs(46) * jvs(57) - jvs(50) * jvs(58) - jvs(54) * jvs(59)
-    jvs(61) = jvs(61) - jvs(47) * jvs(57) - jvs(55) * jvs(59)
-    jvs(62) = jvs(62) - jvs(56) * jvs(59)
 !   i = 27
-    jvs(63) = (jvs(63)) / jvs(34) 
-    jvs(64) = (jvs(64)) / jvs(36) 
-    jvs(65) = (jvs(65)) / jvs(48) 
-    a = 0.0; a = a  - jvs(49) * jvs(65)
-    jvs(66) = (jvs(66) + a) / jvs(53) 
-    a = 0.0; a = a  - jvs(50) * jvs(65) - jvs(54) * jvs(66)
-    jvs(67) = (jvs(67) + a) / jvs(60) 
-    jvs(68) = jvs(68) - jvs(35) * jvs(63) - jvs(37) * jvs(64) - jvs(55) * jvs(66) - jvs(61) * jvs(67)
-    jvs(69) = jvs(69) - jvs(56) * jvs(66) - jvs(62) * jvs(67)
+    jvs(70) = (jvs(70)) / jvs(62) 
+    jvs(71) = (jvs(71)) / jvs(66) 
+    jvs(72) = jvs(72) - jvs(63) * jvs(70) - jvs(67) * jvs(71)
+    jvs(73) = jvs(73) - jvs(64) * jvs(70)
+    jvs(74) = jvs(74) - jvs(68) * jvs(71)
+    jvs(75) = jvs(75) - jvs(65) * jvs(70)
+    jvs(76) = jvs(76) - jvs(69) * jvs(71)
 !   i = 28
-    jvs(70) = (jvs(70)) / jvs(36) 
-    jvs(71) = (jvs(71)) / jvs(45) 
-    a = 0.0; a = a  - jvs(46) * jvs(71)
-    jvs(72) = (jvs(72) + a) / jvs(60) 
-    a = 0.0; a = a  - jvs(37) * jvs(70) - jvs(47) * jvs(71) - jvs(61) * jvs(72)
-    jvs(73) = (jvs(73) + a) / jvs(68) 
-    jvs(74) = jvs(74) - jvs(62) * jvs(72) - jvs(69) * jvs(73)
 !   i = 29
-    jvs(75) = (jvs(75)) / jvs(32) 
-    jvs(76) = (jvs(76)) / jvs(41) 
-    jvs(78) = jvs(78) - jvs(33) * jvs(75) - jvs(42) * jvs(76)
-    jvs(79) = jvs(79) - jvs(43) * jvs(76)
+    jvs(80) = (jvs(80)) / jvs(54) 
+    jvs(82) = jvs(82) - jvs(55) * jvs(80)
 !   i = 30
-    jvs(80) = (jvs(80)) / jvs(32) 
-    jvs(81) = (jvs(81)) / jvs(38) 
-    jvs(82) = (jvs(82)) / jvs(77) 
-    jvs(83) = jvs(83) - jvs(33) * jvs(80) - jvs(39) * jvs(81) - jvs(78) * jvs(82)
-    jvs(85) = jvs(85) - jvs(79) * jvs(82)
+    jvs(84) = (jvs(84)) / jvs(77) 
+    jvs(85) = (jvs(85)) / jvs(81) 
+    jvs(86) = jvs(86) - jvs(78) * jvs(84)
+    jvs(87) = jvs(87) - jvs(82) * jvs(85)
+    jvs(88) = jvs(88) - jvs(79) * jvs(84) - jvs(83) * jvs(85)
 !   i = 31
-    jvs(87) = (jvs(87)) / jvs(41) 
-    jvs(88) = (jvs(88)) / jvs(77) 
-    a = 0.0; a = a  - jvs(42) * jvs(87) - jvs(78) * jvs(88)
-    jvs(89) = (jvs(89) + a) / jvs(83) 
-    jvs(90) = jvs(90) - jvs(84) * jvs(89)
-    jvs(91) = jvs(91) - jvs(43) * jvs(87) - jvs(79) * jvs(88) - jvs(85) * jvs(89)
-    jvs(92) = jvs(92) - jvs(86) * jvs(89)
+    jvs(90) = (jvs(90)) / jvs(54) 
+    jvs(91) = (jvs(91)) / jvs(56) 
+    jvs(92) = (jvs(92)) / jvs(58) 
+    jvs(93) = (jvs(93)) / jvs(77) 
+    a = 0.0; a = a  - jvs(59) * jvs(92)
+    jvs(94) = (jvs(94) + a) / jvs(81) 
+    a = 0.0; a = a  - jvs(78) * jvs(93)
+    jvs(95) = (jvs(95) + a) / jvs(86) 
+    jvs(96) = jvs(96) - jvs(55) * jvs(90) - jvs(57) * jvs(91) - jvs(60) * jvs(92) - jvs(82) * jvs(94)&
+          - jvs(87) * jvs(95)
+    jvs(97) = jvs(97) - jvs(61) * jvs(92) - jvs(79) * jvs(93) - jvs(83) * jvs(94) - jvs(88) * jvs(95)
+    jvs(98) = jvs(98) - jvs(89) * jvs(95)
 !   i = 32
-    jvs(93) = (jvs(93)) / jvs(41) 
-    jvs(94) = (jvs(94)) / jvs(77) 
-    a = 0.0; a = a  - jvs(42) * jvs(93) - jvs(78) * jvs(94)
-    jvs(95) = (jvs(95) + a) / jvs(83) 
-    a = 0.0; a = a  - jvs(84) * jvs(95)
-    jvs(96) = (jvs(96) + a) / jvs(90) 
-    jvs(97) = jvs(97) - jvs(43) * jvs(93) - jvs(79) * jvs(94) - jvs(85) * jvs(95) - jvs(91) * jvs(96)
-    jvs(98) = jvs(98) - jvs(86) * jvs(95) - jvs(92) * jvs(96)
+    jvs(99) = (jvs(99)) / jvs(77) 
+    jvs(100) = (jvs(100)) / jvs(81) 
+    a = 0.0; a = a  - jvs(78) * jvs(99)
+    jvs(101) = (jvs(101) + a) / jvs(86) 
+    a = 0.0; a = a  - jvs(82) * jvs(100) - jvs(87) * jvs(101)
+    jvs(102) = (jvs(102) + a) / jvs(96) 
+    jvs(103) = jvs(103) - jvs(79) * jvs(99) - jvs(83) * jvs(100) - jvs(88) * jvs(101) - jvs(97) * jvs(102)
+    jvs(104) = jvs(104) - jvs(89) * jvs(101) - jvs(98) * jvs(102)
 !   i = 33
-    jvs(99) = (jvs(99)) / jvs(90) 
-    a = 0.0; a = a  - jvs(91) * jvs(99)
-    jvs(100) = (jvs(100) + a) / jvs(97) 
-    jvs(101) = jvs(101) - jvs(92) * jvs(99) - jvs(98) * jvs(100)
+    jvs(105) = (jvs(105)) / jvs(56) 
+    jvs(106) = (jvs(106)) / jvs(81) 
+    a = 0.0; a = a  - jvs(57) * jvs(105) - jvs(82) * jvs(106)
+    jvs(107) = (jvs(107) + a) / jvs(96) 
+    a = 0.0; a = a  - jvs(83) * jvs(106) - jvs(97) * jvs(107)
+    jvs(108) = (jvs(108) + a) / jvs(103) 
+    jvs(109) = jvs(109) - jvs(98) * jvs(107) - jvs(104) * jvs(108)
     RETURN                                                            
                                                                       
   END SUBROUTINE kppdecomp                                            

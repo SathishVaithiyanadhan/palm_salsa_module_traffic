@@ -686,6 +686,8 @@ SUBROUTINE chem_emissions_match( emt_att,len_index )
              CASE ( 'RCHO_tra' );  chem_emis_att%xm(ispec) = xm_H * 2 + xm_C + xm_O
              CASE ( 'HNO3_tra' );  chem_emis_att%xm(ispec) = xm_H + xm_N + xm_O*3
              CASE ( 'NH3_tra'  );  chem_emis_att%xm(ispec) = xm_N + xm_H * 3
+             CASE ( 'NO2_x_tra' );  chem_emis_att%xm(ispec) = xm_N + xm_O * 2 
+
              CASE DEFAULT
                 WRITE (message_string, * ) 'molar mass for "',                                     &
                                            TRIM( spc_names(match_spec_model(ispec) ) ),            &
@@ -2034,6 +2036,7 @@ SUBROUTINE chem_emissions_match( emt_att,len_index )
              CASE ( 'RCHO_tra' );  chem_emis_att%xm(ispec) = xm_H * 2 + xm_C + xm_O
              CASE ( 'HNO3_tra' );  chem_emis_att%xm(ispec) = xm_H + xm_N + xm_O*3
              CASE ( 'NH3_tra'  );  chem_emis_att%xm(ispec) = xm_N + xm_H * 3
+             CASE ( 'NO2_x_tra' );  chem_emis_att%xm(ispec) = xm_N + xm_O * 2 
              CASE DEFAULT
                 WRITE (message_string, * ) 'molar mass for "',                                     &
                                            TRIM( spc_names(match_spec_model(ispec) ) ),            &

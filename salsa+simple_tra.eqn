@@ -1,0 +1,77 @@
+{salsa+simple_tra.eqn
+Current revision
+----------------
+ 20181220 Fixed effective rate of equation 2  forkel
+          according to eq. 11.1 of
+          http://acmg.seas.harvard.edu/publications/jacobbook/bookchap11.pdf
+ 20180903 Added SALSA variables to 'simple'   monakurppa
+ 20180316 Added equation no. 7                forkel
+ 201711xx Created simple.eqn with 6 equations forkel
+  20260826 Created traffic tagging, H2SO4 equation, OCSV formation  Sathish
+}
+#EQUATIONS
+
+{ simplified smog (by forkel) and salsa variables }
+
+  // ===== ORIGINAL REACTIONS =====
+  { 1.}   NO2 + hv = NO + O3 :            phot(j_no2);
+  { 2.}   O3 + H2O = 2OH :                2.0_dp * 2.2E-10_dp * phot(j_o31d) / (arr2(1.9E+8_dp, -390.0_dp, temp));
+  { 3.}   NO + O3 = NO2 :                 arr2(1.80E-12_dp, 1370.0_dp, temp);
+  { 4.}   RH + OH = RO2 + H2O :           arr2(2.00E-11_dp,  500.0_dp, temp);
+  { 5.}   RO2 + NO = NO2 + RCHO + HO2 :   arr2(4.20E-12_dp, -180.0_dp, temp);
+  { 6.}   HO2 + NO = NO2 + OH :           arr2(3.70E-12_dp, -240.0_dp, temp);
+  { 7.}   NO2 + OH = HNO3 :               arr2(1.15E-11_dp,    0.0_dp, temp);
+  { 8.}   SO2 + OH = H2SO4 + HO2 :                arr2(1.0E-12_dp, 0.0_dp, temp);
+  { 9.}   NH3 = NH3 :                     1.0_dp;
+  { 10.}  OCNV = OCNV :                   1.0_dp;
+  { 11.}  RCHO + OH = OCSV :              arr2(1.0E-11_dp, 0.0_dp, temp);
+
+
+  // ===== TRAFFIC-TAGGED REACTIONS =====
+  // Method (Emmons 2012 / TOAST 2018): each tagged reaction mirrors a base reaction at
+  // the SAME rate. The real (untagged) co-reactant appears on BOTH sides (net-zero
+  // catalyst), so the tagged species reacts at the true ambient rate WITHOUT perturbing
+  // the total chemistry.
+  //
+  // O3 null cycle (TOAST Ox/NOy split): NO2_tra (NOy) is the null-cycle reservoir and
+  // never creates traffic O3; only NO2_x_tra (Ox), produced by the peroxy+NO step,
+  // photolyses to O3_tra. O3_tra is lost at the SAME rates as total O3 (photolysis +
+  // NO titration), which keeps the closure test (sum of tags = total) valid.
+  //
+  // --- Traffic NOx null cycle (background O3 identity preserved; NO traffic O3 created) ---
+  { 12.}  NO_tra + O3 = NO2_tra + O3 :          arr2(1.80E-12_dp, 1370.0_dp, temp);
+  { 13.}  NO2_tra + hv = NO_tra :               phot(j_no2);
+  // --- Net traffic O3 production (peroxy + traffic NO -> Ox NO2 -> O3_tra) ---
+  { 14.}  NO_tra + RO2 = NO2_x_tra + RO2 :      arr2(4.20E-12_dp, -180.0_dp, temp);
+  { 15.}  NO_tra + HO2 = NO2_x_tra + HO2 :      arr2(3.70E-12_dp, -240.0_dp, temp);
+  { 16.}  NO2_x_tra + hv = NO_tra + O3_tra :    phot(j_no2);
+  // --- Traffic O3 sinks (mirror total O3 loss -> closure) ---
+  { 17.}  O3_tra + H2O = 2OH_tra :              2.0_dp * 2.2E-10_dp * phot(j_o31d) / (arr2(1.9E+8_dp, -390.0_dp, temp));
+  { 18.}  O3_tra + NO = NO :                    arr2(1.80E-12_dp, 1370.0_dp, temp);
+  // --- Traffic VOC oxidation chain (driven by REAL OH -> correct rates) ---
+  { 19.}  RH_tra + OH = RO2_tra + H2O + OH :    arr2(2.00E-11_dp,  500.0_dp, temp);
+  { 20.}  RO2_tra + NO = RCHO_tra + HO2_tra + NO :  arr2(4.20E-12_dp, -180.0_dp, temp);
+  { 21.}  HO2_tra + NO = OH_tra + NO :          arr2(3.70E-12_dp, -240.0_dp, temp);
+  // --- Traffic SIA precursors (driven by REAL OH -> correct production rates) ---
+  { 22.}  NO2_tra + OH = HNO3_tra + OH :        arr2(1.15E-11_dp,    0.0_dp, temp);
+  { 23.}  SO2_tra + OH = H2SO4_tra + HO2_tra + OH :  arr2(1.0E-12_dp, 0.0_dp, temp);
+  // --- Traffic SOA formation (mirrors TOTAL reaction 11a -> closure) ---
+  { 24.}  RCHO_tra + OH = OCSV_tra + OH :       arr2(1.0E-11_dp, 0.0_dp, temp);
+  // --- OH_tra diagnostic sinks (mirror real OH loss channels so OH_tra reaches steady state) ---
+  { 25.}  OH_tra + RH = RH :                    arr2(2.00E-11_dp,  500.0_dp, temp);
+  { 26.}  OH_tra + NO2 = NO2 :                  arr2(1.15E-11_dp,    0.0_dp, temp);
+  { 27.}  OH_tra + SO2 = SO2 :                  arr2(1.0E-12_dp, 0.0_dp, temp);
+  // --- Passive traffic species (emitted; SALSA reads/condenses them) ---
+  { 28.}  NH3_tra = NH3_tra :                   1.0_dp;
+  { 29.}  OCNV_tra = OCNV_tra :                 1.0_dp;
+
+
+  // ===== Passive PM10 and PM2.5 =====
+  { passive: does nothing }
+  { 30.}  PM10 = PM10 :                   1.0_dp  ;
+  { 31.}  PM25 = PM25 :                   1.0_dp  ;
+
+    // ===== Passive_traffic PM10 and PM2.5 =====
+  { passive: does nothing }
+  { 32.}  PM10_tra = PM10_tra :                   1.0_dp  ;
+  { 33.}  PM25_tra = PM25_tra :                   1.0_dp  ;

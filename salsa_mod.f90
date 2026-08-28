@@ -4168,6 +4168,11 @@
     REAL(wp) ::  zgocnv_tra  !< traffic non-volatile OC
     REAL(wp) ::  zgocsv_tra  !< traffic semi-volatile OC
 
+! Method-2 (tagged subset): initial total gas, traffic fractions and condensation helper
+    REAL(wp) ::  zgso4_0, zghno3_0, zgnh3_0, zgocnv_0, zgocsv_0  !< initial total gas (#/m3)
+    REAL(wp) ::  f_tra_so4, f_tra_no3, f_tra_nh3, f_tra_oc        !< traffic fraction of vapours
+    REAL(wp) ::  ztra_cond                                       !< traffic-tagged condensation
+
     REAL(wp), DIMENSION(nzb:nzt+1) ::  in_adn  !< air density (kg/m3)
     REAL(wp), DIMENSION(nzb:nzt+1) ::  in_cs   !< H2O sat. vapour conc.
     REAL(wp), DIMENSION(nzb:nzt+1) ::  in_cw   !< H2O vapour concentration
@@ -4182,6 +4187,8 @@
 
     TYPE(t_section), DIMENSION(nbins_aerosol) ::  lo_aero   !< additional variable for OpenMP
     TYPE(t_section), DIMENSION(nbins_aerosol) ::  aero_old  !< helper array
+    TYPE(t_section), DIMENSION(nbins_aerosol) ::  aero_before_cond  !< state before condensation (Method-2)
+    TYPE(t_section), DIMENSION(nbins_aerosol) ::  aero_after_cond   !< state after condensation (Method-2)
 
     TYPE(salsa_variable), DIMENSION(:), POINTER ::  aero_num_ptr  !< pointer to current pop number arrays
     TYPE(salsa_variable), DIMENSION(:), POINTER ::  aero_mass_ptr  !< pointer to current pop mass arrays
@@ -4232,17 +4239,12 @@
 
     DO k = nzb+1, nzt
 !
-!--    Process both populations (pop=2 only if traffic tracking is enabled)
-       DO pop = 1, MERGE( npop, 1, is_traffic )
-!
-!--       Point to the right arrays for this population
-          IF ( pop == 1 )  THEN
-             aero_num_ptr  => aerosol_number
-             aero_mass_ptr => aerosol_mass
-          ELSE
-             aero_num_ptr  => aerosol_number_tra
-             aero_mass_ptr => aerosol_mass_tra
-          ENDIF
+!--    Method-2 (tagged subset): pop1 is the single TOTAL physical population. Traffic is
+!--    carried as tagged mass subsets (aerosol_mass_tra) and a number cohort
+!--    (aerosol_number_tra), which are updated after the pop1 aerosol physics below.
+       pop = 1
+       aero_num_ptr  => aerosol_number
+       aero_mass_ptr => aerosol_mass
 !
 !--    Predetermine flag to mask topography
        flag = MERGE( 1.0_wp, 0.0_wp, BTEST( topo_flags(k,j,i), 0 ) )
@@ -4459,39 +4461,46 @@
        ENDIF
 !
 !--    Gaseous tracer concentrations in #/m3
+!--    Method-2: pop1 condenses the TOTAL vapour. The traffic-tagged gases are read only
+!--    to (a) compute the traffic fraction of the condensing vapour and (b) update the
+!--    traffic-tagged gas tendency consistently.
        IF ( salsa_gases_from_chem )  THEN
 !
-!--       Convert concentrations in ppm to #/m3
-          IF ( pop == 1 )  THEN
-             zgso4  = chem_species(gas_index_chem(1))%conc(k,j,i) * ppm_to_nconc(k)
-             zghno3 = chem_species(gas_index_chem(2))%conc(k,j,i) * ppm_to_nconc(k)
-             zgnh3  = chem_species(gas_index_chem(3))%conc(k,j,i) * ppm_to_nconc(k)
-             zgocnv = chem_species(gas_index_chem(4))%conc(k,j,i) * ppm_to_nconc(k)
-             zgocsv = chem_species(gas_index_chem(5))%conc(k,j,i) * ppm_to_nconc(k)
-          ELSE
-             zgso4_tra  = chem_species(gas_index_chem(6))%conc(k,j,i) * ppm_to_nconc(k)
-             zghno3_tra = chem_species(gas_index_chem(7))%conc(k,j,i) * ppm_to_nconc(k)
-             zgnh3_tra  = chem_species(gas_index_chem(8))%conc(k,j,i) * ppm_to_nconc(k)
-             zgocnv_tra = chem_species(gas_index_chem(9))%conc(k,j,i) * ppm_to_nconc(k)
-             zgocsv_tra = chem_species(gas_index_chem(10))%conc(k,j,i) * ppm_to_nconc(k)
-          ENDIF
+!--       Convert concentrations in ppm to #/m3 (total gases)
+          zgso4  = chem_species(gas_index_chem(1))%conc(k,j,i) * ppm_to_nconc(k)
+          zghno3 = chem_species(gas_index_chem(2))%conc(k,j,i) * ppm_to_nconc(k)
+          zgnh3  = chem_species(gas_index_chem(3))%conc(k,j,i) * ppm_to_nconc(k)
+          zgocnv = chem_species(gas_index_chem(4))%conc(k,j,i) * ppm_to_nconc(k)
+          zgocsv = chem_species(gas_index_chem(5))%conc(k,j,i) * ppm_to_nconc(k)
+!
+!--       Traffic-tagged gases (traffic fractions of the vapours)
+          zgso4_tra  = chem_species(gas_index_chem(6))%conc(k,j,i) * ppm_to_nconc(k)
+          zghno3_tra = chem_species(gas_index_chem(7))%conc(k,j,i) * ppm_to_nconc(k)
+          zgnh3_tra  = chem_species(gas_index_chem(8))%conc(k,j,i) * ppm_to_nconc(k)
+          zgocnv_tra = chem_species(gas_index_chem(9))%conc(k,j,i) * ppm_to_nconc(k)
+          zgocsv_tra = chem_species(gas_index_chem(10))%conc(k,j,i) * ppm_to_nconc(k)
        ELSE
-          IF ( pop == 1 )  THEN
-             zgso4  = salsa_gas(1)%conc(k,j,i)
-             zghno3 = salsa_gas(2)%conc(k,j,i)
-             zgnh3  = salsa_gas(3)%conc(k,j,i)
-             zgocnv = salsa_gas(4)%conc(k,j,i)
-             zgocsv = salsa_gas(5)%conc(k,j,i)
-          ELSE
-             zgso4_tra  = salsa_gas(6)%conc(k,j,i)
-             zghno3_tra = salsa_gas(7)%conc(k,j,i)
-             zgnh3_tra  = salsa_gas(8)%conc(k,j,i)
-             zgocnv_tra = salsa_gas(9)%conc(k,j,i)
-             zgocsv_tra = salsa_gas(10)%conc(k,j,i)
-          ENDIF
+          zgso4  = salsa_gas(1)%conc(k,j,i)
+          zghno3 = salsa_gas(2)%conc(k,j,i)
+          zgnh3  = salsa_gas(3)%conc(k,j,i)
+          zgocnv = salsa_gas(4)%conc(k,j,i)
+          zgocsv = salsa_gas(5)%conc(k,j,i)
+          zgso4_tra  = salsa_gas(6)%conc(k,j,i)
+          zghno3_tra = salsa_gas(7)%conc(k,j,i)
+          zgnh3_tra  = salsa_gas(8)%conc(k,j,i)
+          zgocnv_tra = salsa_gas(9)%conc(k,j,i)
+          zgocsv_tra = salsa_gas(10)%conc(k,j,i)
        ENDIF
 !
-!--    Calculate aerosol processes:
+!--    Save initial (pre-condensation) total gas concentrations for the traffic-fraction
+!--    and traffic gas tendency bookkeeping.
+       zgso4_0  = zgso4
+       zghno3_0 = zghno3
+       zgnh3_0  = zgnh3
+       zgocnv_0 = zgocnv
+       zgocsv_0 = zgocsv
+!
+!--    Calculate aerosol processes on the TOTAL population (Method-2):
 !--    *********************************************************************************************
 !
 !--    Coagulation
@@ -4499,16 +4508,17 @@
           CALL coagulation( lo_aero, dt_salsa, in_t(k), in_p(k) )
        ENDIF
 !
-!--    Condensation - use separate gas variables per population
+!--    Save state before condensation (needed for the traffic-tagged condensation)
+       aero_before_cond = lo_aero
+!
+!--    Condensation on the TOTAL vapour
        IF ( lscnd )   THEN
-          IF ( pop == 1 )  THEN
-             CALL condensation( lo_aero, zgso4, zgocnv, zgocsv,  zghno3, zgnh3, in_cw(k), in_cs(k),   &
-                                in_t(k), in_p(k), dt_salsa, prtcl )
-          ELSE
-             CALL condensation( lo_aero, zgso4_tra, zgocnv_tra, zgocsv_tra, zghno3_tra, zgnh3_tra,     &
-                                in_cw(k), in_cs(k), in_t(k), in_p(k), dt_salsa, prtcl )
-          ENDIF
+          CALL condensation( lo_aero, zgso4, zgocnv, zgocsv,  zghno3, zgnh3, in_cw(k), in_cs(k),   &
+                             in_t(k), in_p(k), dt_salsa, prtcl )
        ENDIF
+!
+!--    Save state after condensation (needed for the traffic-tagged condensation)
+       aero_after_cond = lo_aero
 !
 !--    Deposition
        IF ( lsdepo )  THEN
@@ -4704,7 +4714,284 @@
              ENDDO
           ENDIF
        ENDIF
-       ENDDO  ! pop loop (end of aerosol processing for both populations)
+!
+!--    *************************************************************************************
+!--    Method-2: traffic-tagged mass (aerosol_mass_tra) and traffic number cohort
+!--    (aerosol_number_tra) updates for the single TOTAL population.
+!--    Traffic-tagged mass is a SUBSET of the total mass (0 <= tra <= total):
+!--      * condensation:  the traffic-tagged fraction of the condensing vapour is added
+!--      * coagulation / size-distribution / evaporation:  traffic mass follows the total
+!--        mass change per bin (proportional treatment, approximate)
+!--      * deposition:  same deposition velocity -> proportional loss
+!--    The traffic number cohort follows the total number change per bin (the average
+!--    particle in a bin coagulates/deposits at the same rate as the total).
+!--    *************************************************************************************
+       IF ( is_traffic )  THEN
+!
+!--       Traffic fractions of the condensing vapours (at the start of the step)
+          f_tra_so4 = zgso4_tra  / MAX( zgso4_0, 1.0E-30_wp )
+          f_tra_no3 = zghno3_tra / MAX( zghno3_0, 1.0E-30_wp )
+          f_tra_nh3 = zgnh3_tra  / MAX( zgnh3_0, 1.0E-30_wp )
+          f_tra_oc  = ( zgocnv_tra + zgocsv_tra ) / MAX( zgocnv_0 + zgocsv_0, 1.0E-30_wp )
+          f_tra_so4 = MAX( 0.0_wp, MIN( f_tra_so4, 1.0_wp ) )
+          f_tra_no3 = MAX( 0.0_wp, MIN( f_tra_no3, 1.0_wp ) )
+          f_tra_nh3 = MAX( 0.0_wp, MIN( f_tra_nh3, 1.0_wp ) )
+          f_tra_oc  = MAX( 0.0_wp, MIN( f_tra_oc, 1.0_wp ) )
+!
+!--       Sulphate (SO4)
+          IF ( index_so4 > 0 )  THEN
+             vc = 1
+             str = ( index_so4-1 ) * nbins_aerosol + 1
+             endi = index_so4 * nbins_aerosol
+             ic = 1
+             DO ss = str, endi
+                ztra_cond = MAX( aero_after_cond(ic)%volc(vc) - aero_before_cond(ic)%volc(vc), 0.0_wp )
+                IF ( aero_old(ic)%volc(vc) > 1.0E-30_wp )  THEN
+                   aerosol_mass_tra(ss)%conc(k,j,i) = aerosol_mass_tra(ss)%conc(k,j,i) *            &
+                        MAX( ( lo_aero(ic)%volc(vc) - ztra_cond ) / aero_old(ic)%volc(vc), 0.0_wp )
+                ELSE
+                   aerosol_mass_tra(ss)%conc(k,j,i) = 0.0_wp
+                ENDIF
+                aerosol_mass_tra(ss)%conc(k,j,i) = aerosol_mass_tra(ss)%conc(k,j,i) +               &
+                        f_tra_so4 * ztra_cond * arhoh2so4 * flag
+                aerosol_mass_tra(ss)%conc(k,j,i) = MAX( 0.0_wp, MIN( aerosol_mass_tra(ss)%conc(k,j,i),&
+                        aero_mass_ptr(ss)%conc(k,j,i) ) )
+                ic = ic+1
+             ENDDO
+          ENDIF
+!
+!--       Organic carbon (OC)
+          IF ( index_oc > 0 )  THEN
+             vc = 2
+             str = ( index_oc-1 ) * nbins_aerosol + 1
+             endi = index_oc * nbins_aerosol
+             ic = 1
+             DO ss = str, endi
+                ztra_cond = MAX( aero_after_cond(ic)%volc(vc) - aero_before_cond(ic)%volc(vc), 0.0_wp )
+                IF ( aero_old(ic)%volc(vc) > 1.0E-30_wp )  THEN
+                   aerosol_mass_tra(ss)%conc(k,j,i) = aerosol_mass_tra(ss)%conc(k,j,i) *            &
+                        MAX( ( lo_aero(ic)%volc(vc) - ztra_cond ) / aero_old(ic)%volc(vc), 0.0_wp )
+                ELSE
+                   aerosol_mass_tra(ss)%conc(k,j,i) = 0.0_wp
+                ENDIF
+                aerosol_mass_tra(ss)%conc(k,j,i) = aerosol_mass_tra(ss)%conc(k,j,i) +               &
+                        f_tra_oc * ztra_cond * arhooc * flag
+                aerosol_mass_tra(ss)%conc(k,j,i) = MAX( 0.0_wp, MIN( aerosol_mass_tra(ss)%conc(k,j,i),&
+                        aero_mass_ptr(ss)%conc(k,j,i) ) )
+                ic = ic+1
+             ENDDO
+          ENDIF
+!
+!--       Black carbon (BC) - emitted primary, no condensation tag (f_tra = 0)
+          IF ( index_bc > 0 )  THEN
+             vc = 3
+             str = ( index_bc-1 ) * nbins_aerosol + 1 + end_subrange_1a
+             endi = index_bc * nbins_aerosol
+             ic = 1 + end_subrange_1a
+             DO ss = str, endi
+                ztra_cond = MAX( aero_after_cond(ic)%volc(vc) - aero_before_cond(ic)%volc(vc), 0.0_wp )
+                IF ( aero_old(ic)%volc(vc) > 1.0E-30_wp )  THEN
+                   aerosol_mass_tra(ss)%conc(k,j,i) = aerosol_mass_tra(ss)%conc(k,j,i) *            &
+                        MAX( ( lo_aero(ic)%volc(vc) - ztra_cond ) / aero_old(ic)%volc(vc), 0.0_wp )
+                ELSE
+                   aerosol_mass_tra(ss)%conc(k,j,i) = 0.0_wp
+                ENDIF
+                aerosol_mass_tra(ss)%conc(k,j,i) = MAX( 0.0_wp, MIN( aerosol_mass_tra(ss)%conc(k,j,i),&
+                        aero_mass_ptr(ss)%conc(k,j,i) ) )
+                ic = ic+1
+             ENDDO
+          ENDIF
+!
+!--       Dust (DU) - emitted primary, no condensation tag
+          IF ( index_du > 0 )  THEN
+             vc = 4
+             str = ( index_du-1 ) * nbins_aerosol + 1 + end_subrange_1a
+             endi = index_du * nbins_aerosol
+             ic = 1 + end_subrange_1a
+             DO ss = str, endi
+                ztra_cond = MAX( aero_after_cond(ic)%volc(vc) - aero_before_cond(ic)%volc(vc), 0.0_wp )
+                IF ( aero_old(ic)%volc(vc) > 1.0E-30_wp )  THEN
+                   aerosol_mass_tra(ss)%conc(k,j,i) = aerosol_mass_tra(ss)%conc(k,j,i) *            &
+                        MAX( ( lo_aero(ic)%volc(vc) - ztra_cond ) / aero_old(ic)%volc(vc), 0.0_wp )
+                ELSE
+                   aerosol_mass_tra(ss)%conc(k,j,i) = 0.0_wp
+                ENDIF
+                aerosol_mass_tra(ss)%conc(k,j,i) = MAX( 0.0_wp, MIN( aerosol_mass_tra(ss)%conc(k,j,i),&
+                        aero_mass_ptr(ss)%conc(k,j,i) ) )
+                ic = ic+1
+             ENDDO
+          ENDIF
+!
+!--       Sea salt (SS) - emitted primary, no condensation tag
+          IF ( index_ss > 0 )  THEN
+             vc = 5
+             str = ( index_ss-1 ) * nbins_aerosol + 1 + end_subrange_1a
+             endi = index_ss * nbins_aerosol
+             ic = 1 + end_subrange_1a
+             DO ss = str, endi
+                ztra_cond = MAX( aero_after_cond(ic)%volc(vc) - aero_before_cond(ic)%volc(vc), 0.0_wp )
+                IF ( aero_old(ic)%volc(vc) > 1.0E-30_wp )  THEN
+                   aerosol_mass_tra(ss)%conc(k,j,i) = aerosol_mass_tra(ss)%conc(k,j,i) *            &
+                        MAX( ( lo_aero(ic)%volc(vc) - ztra_cond ) / aero_old(ic)%volc(vc), 0.0_wp )
+                ELSE
+                   aerosol_mass_tra(ss)%conc(k,j,i) = 0.0_wp
+                ENDIF
+                aerosol_mass_tra(ss)%conc(k,j,i) = MAX( 0.0_wp, MIN( aerosol_mass_tra(ss)%conc(k,j,i),&
+                        aero_mass_ptr(ss)%conc(k,j,i) ) )
+                ic = ic+1
+             ENDDO
+          ENDIF
+!
+!--       Nitrate (NO3)
+          IF ( index_no > 0 )  THEN
+             vc = 6
+             str = ( index_no-1 ) * nbins_aerosol + 1
+             endi = index_no * nbins_aerosol
+             ic = 1
+             DO ss = str, endi
+                ztra_cond = MAX( aero_after_cond(ic)%volc(vc) - aero_before_cond(ic)%volc(vc), 0.0_wp )
+                IF ( aero_old(ic)%volc(vc) > 1.0E-30_wp )  THEN
+                   aerosol_mass_tra(ss)%conc(k,j,i) = aerosol_mass_tra(ss)%conc(k,j,i) *            &
+                        MAX( ( lo_aero(ic)%volc(vc) - ztra_cond ) / aero_old(ic)%volc(vc), 0.0_wp )
+                ELSE
+                   aerosol_mass_tra(ss)%conc(k,j,i) = 0.0_wp
+                ENDIF
+                aerosol_mass_tra(ss)%conc(k,j,i) = aerosol_mass_tra(ss)%conc(k,j,i) +               &
+                        f_tra_no3 * ztra_cond * arhohno3 * flag
+                aerosol_mass_tra(ss)%conc(k,j,i) = MAX( 0.0_wp, MIN( aerosol_mass_tra(ss)%conc(k,j,i),&
+                        aero_mass_ptr(ss)%conc(k,j,i) ) )
+                ic = ic+1
+             ENDDO
+          ENDIF
+!
+!--       Ammonium (NH4)
+          IF ( index_nh > 0 )  THEN
+             vc = 7
+             str = ( index_nh-1 ) * nbins_aerosol + 1
+             endi = index_nh * nbins_aerosol
+             ic = 1
+             DO ss = str, endi
+                ztra_cond = MAX( aero_after_cond(ic)%volc(vc) - aero_before_cond(ic)%volc(vc), 0.0_wp )
+                IF ( aero_old(ic)%volc(vc) > 1.0E-30_wp )  THEN
+                   aerosol_mass_tra(ss)%conc(k,j,i) = aerosol_mass_tra(ss)%conc(k,j,i) *            &
+                        MAX( ( lo_aero(ic)%volc(vc) - ztra_cond ) / aero_old(ic)%volc(vc), 0.0_wp )
+                ELSE
+                   aerosol_mass_tra(ss)%conc(k,j,i) = 0.0_wp
+                ENDIF
+                aerosol_mass_tra(ss)%conc(k,j,i) = aerosol_mass_tra(ss)%conc(k,j,i) +               &
+                        f_tra_nh3 * ztra_cond * arhonh3 * flag
+                aerosol_mass_tra(ss)%conc(k,j,i) = MAX( 0.0_wp, MIN( aerosol_mass_tra(ss)%conc(k,j,i),&
+                        aero_mass_ptr(ss)%conc(k,j,i) ) )
+                ic = ic+1
+             ENDDO
+          ENDIF
+!
+!--       Trace metals (PB, HG, NI, CD, AS) - emitted primary, no condensation tag
+          IF ( index_pb > 0 )  THEN
+             vc = 8
+             str = ( index_pb-1 ) * nbins_aerosol + 1
+             endi = index_pb * nbins_aerosol
+             ic = 1
+             DO ss = str, endi
+                ztra_cond = MAX( aero_after_cond(ic)%volc(vc) - aero_before_cond(ic)%volc(vc), 0.0_wp )
+                IF ( aero_old(ic)%volc(vc) > 1.0E-30_wp )  THEN
+                   aerosol_mass_tra(ss)%conc(k,j,i) = aerosol_mass_tra(ss)%conc(k,j,i) *            &
+                        MAX( ( lo_aero(ic)%volc(vc) - ztra_cond ) / aero_old(ic)%volc(vc), 0.0_wp )
+                ELSE
+                   aerosol_mass_tra(ss)%conc(k,j,i) = 0.0_wp
+                ENDIF
+                aerosol_mass_tra(ss)%conc(k,j,i) = MAX( 0.0_wp, MIN( aerosol_mass_tra(ss)%conc(k,j,i),&
+                        aero_mass_ptr(ss)%conc(k,j,i) ) )
+                ic = ic+1
+             ENDDO
+          ENDIF
+          IF ( index_hg > 0 )  THEN
+             vc = 9
+             str = ( index_hg-1 ) * nbins_aerosol + 1
+             endi = index_hg * nbins_aerosol
+             ic = 1
+             DO ss = str, endi
+                ztra_cond = MAX( aero_after_cond(ic)%volc(vc) - aero_before_cond(ic)%volc(vc), 0.0_wp )
+                IF ( aero_old(ic)%volc(vc) > 1.0E-30_wp )  THEN
+                   aerosol_mass_tra(ss)%conc(k,j,i) = aerosol_mass_tra(ss)%conc(k,j,i) *            &
+                        MAX( ( lo_aero(ic)%volc(vc) - ztra_cond ) / aero_old(ic)%volc(vc), 0.0_wp )
+                ELSE
+                   aerosol_mass_tra(ss)%conc(k,j,i) = 0.0_wp
+                ENDIF
+                aerosol_mass_tra(ss)%conc(k,j,i) = MAX( 0.0_wp, MIN( aerosol_mass_tra(ss)%conc(k,j,i),&
+                        aero_mass_ptr(ss)%conc(k,j,i) ) )
+                ic = ic+1
+             ENDDO
+          ENDIF
+          IF ( index_ni > 0 )  THEN
+             vc = 10
+             str = ( index_ni-1 ) * nbins_aerosol + 1
+             endi = index_ni * nbins_aerosol
+             ic = 1
+             DO ss = str, endi
+                ztra_cond = MAX( aero_after_cond(ic)%volc(vc) - aero_before_cond(ic)%volc(vc), 0.0_wp )
+                IF ( aero_old(ic)%volc(vc) > 1.0E-30_wp )  THEN
+                   aerosol_mass_tra(ss)%conc(k,j,i) = aerosol_mass_tra(ss)%conc(k,j,i) *            &
+                        MAX( ( lo_aero(ic)%volc(vc) - ztra_cond ) / aero_old(ic)%volc(vc), 0.0_wp )
+                ELSE
+                   aerosol_mass_tra(ss)%conc(k,j,i) = 0.0_wp
+                ENDIF
+                aerosol_mass_tra(ss)%conc(k,j,i) = MAX( 0.0_wp, MIN( aerosol_mass_tra(ss)%conc(k,j,i),&
+                        aero_mass_ptr(ss)%conc(k,j,i) ) )
+                ic = ic+1
+             ENDDO
+          ENDIF
+          IF ( index_cd > 0 )  THEN
+             vc = 11
+             str = ( index_cd-1 ) * nbins_aerosol + 1
+             endi = index_cd * nbins_aerosol
+             ic = 1
+             DO ss = str, endi
+                ztra_cond = MAX( aero_after_cond(ic)%volc(vc) - aero_before_cond(ic)%volc(vc), 0.0_wp )
+                IF ( aero_old(ic)%volc(vc) > 1.0E-30_wp )  THEN
+                   aerosol_mass_tra(ss)%conc(k,j,i) = aerosol_mass_tra(ss)%conc(k,j,i) *            &
+                        MAX( ( lo_aero(ic)%volc(vc) - ztra_cond ) / aero_old(ic)%volc(vc), 0.0_wp )
+                ELSE
+                   aerosol_mass_tra(ss)%conc(k,j,i) = 0.0_wp
+                ENDIF
+                aerosol_mass_tra(ss)%conc(k,j,i) = MAX( 0.0_wp, MIN( aerosol_mass_tra(ss)%conc(k,j,i),&
+                        aero_mass_ptr(ss)%conc(k,j,i) ) )
+                ic = ic+1
+             ENDDO
+          ENDIF
+          IF ( index_as > 0 )  THEN
+             vc = 12
+             str = ( index_as-1 ) * nbins_aerosol + 1
+             endi = index_as * nbins_aerosol
+             ic = 1
+             DO ss = str, endi
+                ztra_cond = MAX( aero_after_cond(ic)%volc(vc) - aero_before_cond(ic)%volc(vc), 0.0_wp )
+                IF ( aero_old(ic)%volc(vc) > 1.0E-30_wp )  THEN
+                   aerosol_mass_tra(ss)%conc(k,j,i) = aerosol_mass_tra(ss)%conc(k,j,i) *            &
+                        MAX( ( lo_aero(ic)%volc(vc) - ztra_cond ) / aero_old(ic)%volc(vc), 0.0_wp )
+                ELSE
+                   aerosol_mass_tra(ss)%conc(k,j,i) = 0.0_wp
+                ENDIF
+                aerosol_mass_tra(ss)%conc(k,j,i) = MAX( 0.0_wp, MIN( aerosol_mass_tra(ss)%conc(k,j,i),&
+                        aero_mass_ptr(ss)%conc(k,j,i) ) )
+                ic = ic+1
+             ENDDO
+          ENDIF
+!
+!--       Traffic number cohort: follows the total number change per bin (approximate
+!--       treatment - traffic-born particles in a bin coagulate/deposit at the average
+!--       rate of the total population in that bin).
+          DO ib = 1, nbins_aerosol
+             IF ( aero_old(ib)%numc > nclim )  THEN
+                aerosol_number_tra(ib)%conc(k,j,i) = aerosol_number_tra(ib)%conc(k,j,i) *          &
+                     lo_aero(ib)%numc / aero_old(ib)%numc
+             ELSE
+                aerosol_number_tra(ib)%conc(k,j,i) = 0.0_wp
+             ENDIF
+             aerosol_number_tra(ib)%conc(k,j,i) = MAX( 0.0_wp, MIN( aerosol_number_tra(ib)%conc(k,j,i),&
+                     aero_num_ptr(ib)%conc(k,j,i) ) )
+          ENDDO
+       ENDIF
 !
 !--    Condensation of precursor gases
        IF ( lscndgas )  THEN
@@ -4735,33 +5022,42 @@
              chem_species(ig)%conc(k,j,i) = chem_species(ig)%conc(k,j,i) + ( zgocsv /              &
                                             ppm_to_nconc(k) - chem_species(ig)%conc(k,j,i) ) * flag
 !
-!--          Traffic gas tendencies only if traffic tracking is enabled
+!--          Traffic gas tendencies only if traffic tracking is enabled.
+!--          Method-2: the traffic-tagged vapour is consumed by the traffic-tagged fraction
+!--          of the TOTAL condensation (pop2 no longer condenses a separate vapour pool).
              IF ( is_traffic )  THEN
 !
 !--          H2SO4_tra
              ig = gas_index_chem(6)
-             chem_species(ig)%conc(k,j,i) = chem_species(ig)%conc(k,j,i) + ( zgso4_tra /            &
-                                            ppm_to_nconc(k) - chem_species(ig)%conc(k,j,i) ) * flag
+             chem_species(ig)%conc(k,j,i) = chem_species(ig)%conc(k,j,i) +                         &
+                  ( MAX( 0.0_wp, zgso4_tra - f_tra_so4 * MAX( zgso4_0 - zgso4, 0.0_wp ) ) /         &
+                    ppm_to_nconc(k) - chem_species(ig)%conc(k,j,i) ) * flag
 !
 !--          HNO3_tra
              ig = gas_index_chem(7)
-             chem_species(ig)%conc(k,j,i) = chem_species(ig)%conc(k,j,i) + ( zghno3_tra /           &
-                                            ppm_to_nconc(k) - chem_species(ig)%conc(k,j,i) ) * flag
+             chem_species(ig)%conc(k,j,i) = chem_species(ig)%conc(k,j,i) +                         &
+                  ( MAX( 0.0_wp, zghno3_tra - f_tra_no3 * MAX( zghno3_0 - zghno3, 0.0_wp ) ) /      &
+                    ppm_to_nconc(k) - chem_species(ig)%conc(k,j,i) ) * flag
 !
 !--          NH3_tra
              ig = gas_index_chem(8)
-             chem_species(ig)%conc(k,j,i) = chem_species(ig)%conc(k,j,i) + ( zgnh3_tra /            &
-                                            ppm_to_nconc(k) - chem_species(ig)%conc(k,j,i) ) * flag
+             chem_species(ig)%conc(k,j,i) = chem_species(ig)%conc(k,j,i) +                         &
+                  ( MAX( 0.0_wp, zgnh3_tra - f_tra_nh3 * MAX( zgnh3_0 - zgnh3, 0.0_wp ) ) /         &
+                    ppm_to_nconc(k) - chem_species(ig)%conc(k,j,i) ) * flag
 !
-!--          OCNV_tra
+!--          OCNV_tra (traffic-tagged non-volatile OC, split by initial vapour ratio)
              ig = gas_index_chem(9)
-             chem_species(ig)%conc(k,j,i) = chem_species(ig)%conc(k,j,i) + ( zgocnv_tra /           &
-                                            ppm_to_nconc(k) - chem_species(ig)%conc(k,j,i) ) * flag
+             chem_species(ig)%conc(k,j,i) = chem_species(ig)%conc(k,j,i) +                         &
+                  ( MAX( 0.0_wp, zgocnv_tra - f_tra_oc * MAX( ( zgocnv_0 - zgocnv ) +              &
+                    ( zgocsv_0 - zgocsv ), 0.0_wp ) * zgocnv_tra / MAX( zgocnv_tra + zgocsv_tra,    &
+                    1.0E-30_wp ) ) / ppm_to_nconc(k) - chem_species(ig)%conc(k,j,i) ) * flag
 !
-!--          OCSV_tra
+!--          OCSV_tra (traffic-tagged semi-volatile OC)
              ig = gas_index_chem(10)
-             chem_species(ig)%conc(k,j,i) = chem_species(ig)%conc(k,j,i) + ( zgocsv_tra /           &
-                                            ppm_to_nconc(k) - chem_species(ig)%conc(k,j,i) ) * flag
+             chem_species(ig)%conc(k,j,i) = chem_species(ig)%conc(k,j,i) +                         &
+                  ( MAX( 0.0_wp, zgocsv_tra - f_tra_oc * MAX( ( zgocnv_0 - zgocnv ) +              &
+                    ( zgocsv_0 - zgocsv ), 0.0_wp ) * zgocsv_tra / MAX( zgocnv_tra + zgocsv_tra,    &
+                    1.0E-30_wp ) ) / ppm_to_nconc(k) - chem_species(ig)%conc(k,j,i) ) * flag
              ENDIF
 
           ELSE
@@ -4786,28 +5082,37 @@
              salsa_gas(5)%conc(k,j,i) = salsa_gas(5)%conc(k,j,i) + ( zgocsv -                      &
                                         salsa_gas(5)%conc(k,j,i) ) * flag
 !
-!--          Traffic gas tendencies only if traffic tracking is enabled
+!--          Traffic gas tendencies only if traffic tracking is enabled.
+!--          Method-2: the traffic-tagged vapour is consumed by the traffic-tagged fraction
+!--          of the TOTAL condensation (pop2 no longer condenses a separate vapour pool).
              IF ( is_traffic )  THEN
 !
 !--          H2SO4_tra
-             salsa_gas(6)%conc(k,j,i) = salsa_gas(6)%conc(k,j,i) + ( zgso4_tra -                   &
+             salsa_gas(6)%conc(k,j,i) = salsa_gas(6)%conc(k,j,i) + ( MAX( 0.0_wp, zgso4_tra -      &
+                                        f_tra_so4 * MAX( zgso4_0 - zgso4, 0.0_wp ) ) -             &
                                         salsa_gas(6)%conc(k,j,i) ) * flag
 !
 !--          HNO3_tra
-             salsa_gas(7)%conc(k,j,i) = salsa_gas(7)%conc(k,j,i) + ( zghno3_tra -                  &
+             salsa_gas(7)%conc(k,j,i) = salsa_gas(7)%conc(k,j,i) + ( MAX( 0.0_wp, zghno3_tra -     &
+                                        f_tra_no3 * MAX( zghno3_0 - zghno3, 0.0_wp ) ) -           &
                                         salsa_gas(7)%conc(k,j,i) ) * flag
 !
 !--          NH3_tra
-             salsa_gas(8)%conc(k,j,i) = salsa_gas(8)%conc(k,j,i) + ( zgnh3_tra -                   &
+             salsa_gas(8)%conc(k,j,i) = salsa_gas(8)%conc(k,j,i) + ( MAX( 0.0_wp, zgnh3_tra -      &
+                                        f_tra_nh3 * MAX( zgnh3_0 - zgnh3, 0.0_wp ) ) -             &
                                         salsa_gas(8)%conc(k,j,i) ) * flag
 !
-!--          OCNV_tra
-             salsa_gas(9)%conc(k,j,i) = salsa_gas(9)%conc(k,j,i) + ( zgocnv_tra -                  &
-                                        salsa_gas(9)%conc(k,j,i) ) * flag
+!--          OCNV_tra (traffic-tagged non-volatile OC, split by initial vapour ratio)
+             salsa_gas(9)%conc(k,j,i) = salsa_gas(9)%conc(k,j,i) + ( MAX( 0.0_wp, zgocnv_tra -     &
+                                        f_tra_oc * MAX( ( zgocnv_0 - zgocnv ) + ( zgocsv_0 -       &
+                                        zgocsv ), 0.0_wp ) * zgocnv_tra / MAX( zgocnv_tra +        &
+                                        zgocsv_tra, 1.0E-30_wp ) ) - salsa_gas(9)%conc(k,j,i) ) * flag
 !
-!--          OCSV_tra
-             salsa_gas(10)%conc(k,j,i) = salsa_gas(10)%conc(k,j,i) + ( zgocsv_tra -                &
-                                        salsa_gas(10)%conc(k,j,i) ) * flag
+!--          OCSV_tra (traffic-tagged semi-volatile OC)
+             salsa_gas(10)%conc(k,j,i) = salsa_gas(10)%conc(k,j,i) + ( MAX( 0.0_wp, zgocsv_tra -   &
+                                        f_tra_oc * MAX( ( zgocnv_0 - zgocnv ) + ( zgocsv_0 -       &
+                                        zgocsv ), 0.0_wp ) * zgocsv_tra / MAX( zgocnv_tra +        &
+                                        zgocsv_tra, 1.0E-30_wp ) ) - salsa_gas(10)%conc(k,j,i) ) * flag
              ENDIF
           ENDIF
        ENDIF
@@ -11667,6 +11972,7 @@
                                             * api6 * aero(ib)%dmid**3 * arhoh2so4 * rho_air_zw(k-1)
                       IF ( istraffic )  THEN
                          aerosol_mass_tra(ic)%source(j,i) = aerosol_mass_tra(ic)%source(j,i) + surface%amsws(m,ic)
+                         aerosol_mass(ic)%source(j,i)     = aerosol_mass(ic)%source(j,i)     + surface%amsws(m,ic)
                       ELSE
                          aerosol_mass(ic)%source(j,i) = aerosol_mass(ic)%source(j,i) + surface%amsws(m,ic)
                       ENDIF
@@ -11676,6 +11982,7 @@
                                             * api6 * aero(ib)%dmid**3 * arhooc * rho_air_zw(k-1)
                       IF ( istraffic )  THEN
                          aerosol_mass_tra(ic)%source(j,i) = aerosol_mass_tra(ic)%source(j,i) + surface%amsws(m,ic)
+                         aerosol_mass(ic)%source(j,i)     = aerosol_mass(ic)%source(j,i)     + surface%amsws(m,ic)
                       ELSE
                          aerosol_mass(ic)%source(j,i) = aerosol_mass(ic)%source(j,i) + surface%amsws(m,ic)
                       ENDIF
@@ -11687,6 +11994,7 @@
                                             aero(ib)%dmid**3 * arhoh2so4 * rho_air_zw(k-1)
                       IF ( istraffic )  THEN
                          aerosol_mass_tra(ic)%source(j,i) = aerosol_mass_tra(ic)%source(j,i) + surface%amsws(m,ic)
+                         aerosol_mass(ic)%source(j,i)     = aerosol_mass(ic)%source(j,i)     + surface%amsws(m,ic)
                       ELSE
                          aerosol_mass(ic)%source(j,i) = aerosol_mass(ic)%source(j,i) + surface%amsws(m,ic)
                       ENDIF
@@ -11698,6 +12006,7 @@
                                             aero(ib)%dmid**3 * arhooc * rho_air_zw(k-1)
                       IF ( istraffic )  THEN
                          aerosol_mass_tra(ic)%source(j,i) = aerosol_mass_tra(ic)%source(j,i) + surface%amsws(m,ic)
+                         aerosol_mass(ic)%source(j,i)     = aerosol_mass(ic)%source(j,i)     + surface%amsws(m,ic)
                       ELSE
                          aerosol_mass(ic)%source(j,i) = aerosol_mass(ic)%source(j,i) + surface%amsws(m,ic)
                       ENDIF
@@ -11795,6 +12104,7 @@
                 surface%answs(m,ib) = surface%answs(m,ib) + source_array(j,i,ib) * rho_air_zw(k-1)
                 IF ( istraffic )  THEN
                    aerosol_number_tra(ib)%source(j,i) = aerosol_number_tra(ib)%source(j,i) + surface%answs(m,ib)
+                   aerosol_number(ib)%source(j,i)     = aerosol_number(ib)%source(j,i)     + surface%answs(m,ib)
                 ELSE
                    aerosol_number(ib)%source(j,i) = aerosol_number(ib)%source(j,i) + surface%answs(m,ib)
                 ENDIF
@@ -11851,6 +12161,7 @@
                                     aero(ib)%core * prho * rho_air_zw(k-1)
        IF ( ltraffic )  THEN
           aerosol_mass_tra(ic)%source(j,i) = aerosol_mass_tra(ic)%source(j,i) + surface%amsws(surf_num,ic)
+          aerosol_mass(ic)%source(j,i)     = aerosol_mass(ic)%source(j,i)     + surface%amsws(surf_num,ic)
        ELSE
           aerosol_mass(ic)%source(j,i) = aerosol_mass(ic)%source(j,i) + surface%amsws(surf_num,ic)
        ENDIF
@@ -17913,7 +18224,7 @@ CASE ( 'LDSA_tra' )
           DO  ic = ss, ee
              DO  i = is, ie
                 DO  k = ks, ke
-                   DO  t = ts, te
+                   DO  t = 0, 1
                       den1 = mf2a(t,k,i,cc_i2m(1)) + mf2a(t,k,i,cc_i2m(2)) + eps
                       IF ( .NOT. ( mf2a(t,k,i,cc_i2m(1)) == mf2a(t,k,i,cc_i2m(1)) ) .OR.   &
                            .NOT. ( mf2a(t,k,i,cc_i2m(2)) == mf2a(t,k,i,cc_i2m(2)) ) .OR.   &
@@ -17956,7 +18267,7 @@ CASE ( 'LDSA_tra' )
           DO  ic = ss, ee
              DO  i = is, ie
                 DO  k = ks, ke
-                   DO  t = ts, te
+                   DO  t = 0, 1
                       den1 = mf2a(t,k,i,cc_i2m(1)) + mf2a(t,k,i,cc_i2m(2)) + eps
                       IF ( .NOT. ( mf2a(t,k,i,cc_i2m(1)) == mf2a(t,k,i,cc_i2m(1)) ) .OR.   &
                            .NOT. ( mf2a(t,k,i,cc_i2m(2)) == mf2a(t,k,i,cc_i2m(2)) ) .OR.   &
@@ -18001,7 +18312,7 @@ CASE ( 'LDSA_tra' )
           DO  ic = ss, ee
              DO  i = is, ie
                 DO  k = ks, ke
-                   DO  t = ts, te
+                   DO  t = 0, 1
                       to_mconc(t,k,i,ic) = to_nconc(t,k,i,ib) * core(ib) * arhoh2so4
                    ENDDO
                 ENDDO
@@ -18016,7 +18327,7 @@ CASE ( 'LDSA_tra' )
           DO  ic = ss, ee
              DO  i = is, ie
                 DO  k = ks, ke
-                   DO  t = ts, te
+                   DO  t = 0, 1
                       to_mconc(t,k,i,ic) = to_nconc(t,k,i,ib) * core(ib) * arhooc
                    ENDDO
                 ENDDO
@@ -18149,7 +18460,7 @@ CASE ( 'LDSA_tra' )
 
        DO  i = is, ie
           DO  k = ks, ke
-             DO  t = ts, te
+             DO  t = 0, 1
 !
 !--             Regime 2a:
                 ss = ( ispec - 1 ) * nbins_aerosol + start_subrange_2a
@@ -18211,7 +18522,7 @@ CASE ( 'LDSA_tra' )
 !--    Per-species summary of the guarded points (always written, even if the
 !--    30-line detailed cap was already reached)
        IF ( n_nan > 0 )  THEN
-          WRITE( 6,'(A,A,A,A,I0,A)' ) &
+          WRITE( 6,'(A,A,A,A,A,I0,A)' ) &
              'SALSA set_nest_mass: species ', TRIM( spname ), ' (boundary ', TRIM( bname ), &
              '): ', n_nan, ' invalid value(s) replaced by 0.0'
           WRITE( 6,'(A)' ) &
