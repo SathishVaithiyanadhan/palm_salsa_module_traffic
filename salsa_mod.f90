@@ -452,7 +452,7 @@
     REAL(wp) ::  nh3_init  = nclim                   !< Init value for ammonia gas
     REAL(wp) ::  ocnv_init = nclim                   !< Init value for non-volatile organic gases
     REAL(wp) ::  ocsv_init = nclim                   !< Init value for semi-volatile organic gases
-    REAL(wp) ::  rhlim = 1.20_wp                     !< RH limit in %/100. Prevents unrealistical RH
+    REAL(wp) ::  rhlim = 0.97_wp                     !< RH limit as a fraction (0.97 = 97 %). Keeps SALSA in the bounded ZSR equilibrium branch (zrh < 0.98). Prevents unrealistical RH
     REAL(wp) ::  salsa_start_time = 0.0_wp           !< starting time of SALSA (s)
 !
 !-- Initial log-normal size distribution: mode diameter (dpg, metres),
@@ -1353,6 +1353,27 @@
 
     INTEGER(iwp), INTENT(IN) ::  io   !< Unit of the output file
 
+    INTEGER(iwp) ::  ib  !< running index for aerosol size bins
+    INTEGER(iwp) ::  ic  !< running index for aerosol mass components
+
+    CHARACTER(LEN=3) ::  name3   !< species name of the current mass component
+    REAL(wp)         ::  dry_tot !< domain-mean dry aerosol mass
+    REAL(wp)         ::  num_tot !< domain-mean total aerosol number
+    REAL(wp)         ::  wat_tot !< domain-mean particulate water mass
+
+    INTEGER(iwp)     ::  npts    !< number of interior grid points in the window
+    REAL(wp)         ::  cum     !< running cumulative dry mass
+    REAL(wp)         ::  d_mass  !< mass-weighted mean dry diameter
+    REAL(wp)         ::  d_med   !< mass median dry diameter (bin containing 50 %)
+    REAL(wp)         ::  d_wet   !< water-inclusive diameter of the current bin
+    REAL(wp)         ::  m_dry   !< domain-mean dry mass of the current bin
+    REAL(wp)         ::  m_wat   !< domain-mean particulate water mass of the current bin
+    REAL(wp)         ::  num_b   !< domain-mean number concentration of the current bin
+    REAL(wp)         ::  pm01    !< dry mass in bins with d_dry <= 0.1 um
+    REAL(wp)         ::  pm1     !< dry mass in bins with d_dry <= 1 um
+    REAL(wp)         ::  pm25    !< dry mass in bins with d_dry <= 2.5 um
+    REAL(wp)         ::  pm10    !< dry mass in bins with d_dry <= 10 um
+
 
 !
 !-- Write SALSA header
@@ -1378,9 +1399,9 @@
     WRITE( io, 25 )  aero(:)%dmid
     IF ( init_aerosol_type == 0 )  WRITE( io, 14 ) nsect
     IF ( init_aerosol_type == 0 )  THEN
-       WRITE( io, 15 ) ncc, listspec, mass_fracs_a, mass_fracs_b
+       WRITE( io, 33 ) ncc, listspec, mass_fracs_a, mass_fracs_b
     ELSE
-       WRITE( io, 152 ) ncc, listspec, used_mass_fracs_a, used_mass_fracs_b
+       WRITE( io, 34 ) ncc, listspec, used_mass_fracs_a, used_mass_fracs_b
     ENDIF
     IF ( is_traffic )  THEN
        WRITE( io, 151 ) mass_fracs_a_tra, mass_fracs_b_tra
@@ -1391,7 +1412,7 @@
     ENDIF
     WRITE( io, 17 )  init_aerosol_type, init_gases_type
     IF ( init_aerosol_type == 0 )  THEN
-       WRITE( io, 18 )  dpg, sigmag, n_lognorm
+       WRITE( io, 35 )  dpg, sigmag, n_lognorm
     ELSE
        WRITE( io, 19 )
     ENDIF
@@ -1439,7 +1460,8 @@
              '    Number of size bins for each aerosol subrange: ', 2I3,/                          &
              '    Aerosol bin lower limits (in metres): ', 12(ES10.2E3))
 25  FORMAT (/'    Bin geometric mean diameters (in metres): ', 12(ES10.2E3))
-14  FORMAT  ('    Initial number concentration in bins at the lowest level (#/m**3):', 9(ES10.2E3))
+14  FORMAT  ('    Initial number concentration in bins at the lowest level (#/m**3):', 5(ES12.4E3),/&
+             '      ', 5(ES12.4E3))
 15  FORMAT (/'    Number of chemical components used: ', I1,/                                      &
              '       Species: ',12(A6),/                                                            &
              '    Initial relative contribution of each species to particle volume in:',/          &
@@ -1488,6 +1510,155 @@
 27  FORMAT (/'   Negative values of aerosol species due to dispersion errors are permitted!')
 28  FORMAT (/'   Negative values of aerosol species due to dispersion errors are cut, which',/     &
              '   which may appear in results as (small) artificial source of aerosol species.')
+
+29  FORMAT (/'   ACTUAL initialised aerosol state of THIS domain (interior grid points of ',      &
+             'the subdomain of the PE writing this file):',/                                       &
+             '      window:  k = ', I4, ' .. ', I4, '   x = ', I5, ' .. ', I5,                      &
+             '   y = ', I5, ' .. ', I5,/                                                           &
+             '      (init_aerosol_type = ', I1, ';  header is called AFTER the parent-domain ',    &
+             'interpolation, hence these are the ACTUAL initial values)')
+30  FORMAT ( '      bin ', I2, '  dmid = ', ES12.4E3, ' m   number  min/mean/max = ',               &
+             3(ES12.4E3), '  #/m3' )
+31  FORMAT (/'      Mass concentrations, species-major, ', I3, ' entries; mean over the window ',  &
+             'above:')
+32  FORMAT ( '        component ', I3, '   mean mass conc = ', ES12.4E3, '  kg/m3' )
+33  FORMAT (/'    Number of chemical components used: ', I2,/                                     &
+             '       Species: ',12(A6),/                                                           &
+             '    Namelist input for the initial relative contribution of each species to',/       &
+             '    particle volume. NOT used for a nested child domain: see the ACTUAL',/           &
+             '    initialised state reported at the end of this block.',/                          &
+             '       a-bins: ', 12(F10.7),/                                                        &
+             '       b-bins: ', 12(F10.7))
+34  FORMAT (/'    Number of chemical components used: ', I2,/                                     &
+             '       Species: ',12(A6),/                                                           &
+             '    Initial mass fractions actually read from the dynamic driver (surface level):',/ &
+             '       a-bins: ', 12(F10.7),/                                                        &
+             '       b-bins: ', 12(F10.7))
+35  FORMAT ( '      Namelist input (NOT used for a nested child domain - see ACTUAL state below):',/&
+             '      Mode diametres: dpg(nmod) = ', 7(ES12.4E3), ' (m)',/                           &
+             '      Standard deviation: sigmag(nmod) = ', 7(F7.2),/                               &
+             '      Number concentration: n_lognorm(nmod) = ', 7(ES12.4E3), ' (#/m3)' )
+!
+!-- Report the ACTUAL initialised state, i.e. the values the simulation really starts from.
+!-- These are NOT the namelist placeholders printed further above: header is called from palm.f90
+!-- AFTER pmci_child_initialize, hence for a nested child domain the aerosol arrays already
+!-- contain the values interpolated from the parent domain.
+    WRITE( io, 29 )  nzb+1, nzt, nxl, nxr, nys, nyn, init_aerosol_type
+    DO  ib = 1, nbins_aerosol
+       WRITE( io, 30 )  ib, aero(ib)%dmid,                                                         &
+                        MINVAL( aerosol_number(ib)%conc(nzb+1:nzt,nys:nyn,nxl:nxr) ),              &
+                        SUM( aerosol_number(ib)%conc(nzb+1:nzt,nys:nyn,nxl:nxr) ) /                &
+                        REAL( (nzt-nzb) * (nxr-nxl+1) * (nyn-nys+1), wp ),                         &
+                        MAXVAL( aerosol_number(ib)%conc(nzb+1:nzt,nys:nyn,nxl:nxr) )
+    ENDDO
+!
+!-- Mass concentrations as a labelled species x size-bin matrix. The flat index of
+!-- aerosol_mass is component = (species-1) * nbins_aerosol + bin, see set_aero_mass().
+    WRITE( io, 37 )  nbins_aerosol, ncc, ncomponents_mass
+    DO  ic = 1, ncomponents_mass
+       IF ( ic <= ncc )  THEN
+          name3 = listspec(ic)
+       ELSE
+          name3 = 'H2O'
+       ENDIF
+       WRITE( io, 38 )  name3,                                                                      &
+                        ( SUM( aerosol_mass((ic-1)*nbins_aerosol+ib)%conc(nzb+1:nzt,nys:nyn,nxl:nxr) ) /&
+                          REAL( (nzt-nzb) * (nxr-nxl+1) * (nyn-nys+1), wp ), ib = 1, nbins_aerosol )
+    ENDDO
+!
+!-- Domain-mean summary: total number, dry aerosol mass and particulate water.
+    num_tot = 0.0_wp
+    DO  ib = 1, nbins_aerosol
+       num_tot = num_tot + SUM( aerosol_number(ib)%conc(nzb+1:nzt,nys:nyn,nxl:nxr) )
+    ENDDO
+    dry_tot = 0.0_wp
+    wat_tot = 0.0_wp
+    DO  ic = 1, ncomponents_mass
+       DO  ib = 1, nbins_aerosol
+          IF ( ic <= ncc )  THEN
+             dry_tot = dry_tot + SUM( aerosol_mass((ic-1)*nbins_aerosol+ib)%conc(nzb+1:nzt,nys:nyn,nxl:nxr) )
+          ELSE
+             wat_tot = wat_tot + SUM( aerosol_mass((ic-1)*nbins_aerosol+ib)%conc(nzb+1:nzt,nys:nyn,nxl:nxr) )
+          ENDIF
+       ENDDO
+    ENDDO
+    num_tot = num_tot / REAL( (nzt-nzb) * (nxr-nxl+1) * (nyn-nys+1), wp )
+    dry_tot = dry_tot / REAL( (nzt-nzb) * (nxr-nxl+1) * (nyn-nys+1), wp )
+    wat_tot = wat_tot / REAL( (nzt-nzb) * (nxr-nxl+1) * (nyn-nys+1), wp )
+    WRITE( io, 39 )  num_tot, num_tot * 1.0E-06_wp, dry_tot, dry_tot * 1.0E+09_wp,                   &
+                     wat_tot, wat_tot * 1.0E+09_wp,                                                  &
+                     100.0_wp * wat_tot / MAX( dry_tot + wat_tot, 1.0E-30_wp )
+37  FORMAT (/'      Mass concentration [kg/m3], mean over the window; rows = species,',/           &
+             '      columns = size bin 1 .. ', I2, '   (', I2, ' of ', I2, ' components are dry;',/&
+             '      the last one is particulate water)')
+38  FORMAT ( '        ', A3, 2X, 50(ES12.4E3) )
+39  FORMAT (/'      Domain means:',/                                                                &
+             '        total number        = ', ES12.4E3, ' #/m3   (', ES12.4E3, ' #/cm3)',/        &
+             '        dry aerosol mass    = ', ES12.4E3, ' kg/m3  (', ES12.4E3, ' ug/m3)',/        &
+             '        particulate water   = ', ES12.4E3, ' kg/m3  (', ES12.4E3, ' ug/m3)',/        &
+             '        water share of mass = ', F5.1, ' %' )
+!
+!-- Size-bin diagnostics and PM split. The diameter criterion is SALSA's own: module
+!-- salsa_statistics compares 2*ra_dry against 0.1, 2.5 and 10 um and sums the DRY
+!-- species only (ncc, i.e. water excluded). At t=0 the initial bin masses are built as
+!-- mass = pndist * core(ib) * rho with core = api6*dmid**3, hence 2*ra_dry == dmid at
+!-- t=0 and the bin geometric mean diameter can be used directly as d_dry. ra_dry itself
+!-- is only filled during the time integration and is undefined when header is called.
+    npts   = (nzt-nzb) * (nxr-nxl+1) * (nyn-nys+1)
+    pm01   = 0.0_wp
+    pm1    = 0.0_wp
+    pm25   = 0.0_wp
+    pm10   = 0.0_wp
+    cum    = 0.0_wp
+    d_mass = 0.0_wp
+    d_med  = 0.0_wp
+    WRITE( io, 40 )
+    DO  ib = 1, nbins_aerosol
+       m_dry = 0.0_wp
+       DO  ic = 1, ncc
+          m_dry = m_dry + SUM( aerosol_mass((ic-1)*nbins_aerosol+ib)%conc(nzb+1:nzt,nys:nyn,nxl:nxr) )
+       ENDDO
+       m_wat = 0.0_wp
+       IF ( ncomponents_mass > ncc )  THEN
+          m_wat = SUM( aerosol_mass(ncc*nbins_aerosol+ib)%conc(nzb+1:nzt,nys:nyn,nxl:nxr) )
+       ENDIF
+       num_b = SUM( aerosol_number(ib)%conc(nzb+1:nzt,nys:nyn,nxl:nxr) )
+       m_dry = m_dry / REAL( npts, wp )
+       m_wat = m_wat / REAL( npts, wp )
+       num_b = num_b / REAL( npts, wp )
+!
+!--    Water-inclusive diameter: dry core volume + water volume (rho_h2o = 1000 kg/m3).
+       d_wet = aero(ib)%dmid
+       IF ( num_b > 0.0_wp )  THEN
+          d_wet = ( aero(ib)%dmid**3 + MAX( m_wat / num_b, 0.0_wp ) *                             &
+                    6.0_wp / ( 3.141592653589793_wp * 1000.0_wp ) )**0.33333333_wp
+       ENDIF
+       WRITE( io, 41 )  ib, aero(ib)%dmid * 1.0E+09_wp, d_wet * 1.0E+09_wp, num_b,                &
+                        m_dry * 1.0E+09_wp, m_wat * 1.0E+09_wp
+!
+!--    Accumulate PM fractions and the mass-weighted / mass median diameters.
+       d_mass = d_mass + m_dry * aero(ib)%dmid
+       cum    = cum + m_dry
+       IF ( d_med == 0.0_wp  .AND.  cum > 0.5_wp * dry_tot )  d_med = aero(ib)%dmid
+       IF ( aero(ib)%dmid <= 0.1E-6_wp )  pm01 = pm01 + m_dry
+       IF ( aero(ib)%dmid <= 1.0E-6_wp )  pm1  = pm1  + m_dry
+       IF ( aero(ib)%dmid <= 2.5E-6_wp )  pm25 = pm25 + m_dry
+       IF ( aero(ib)%dmid <= 10.0E-6_wp ) pm10 = pm10 + m_dry
+    ENDDO
+    IF ( dry_tot > 0.0_wp )  d_mass = d_mass / dry_tot
+    WRITE( io, 42 )  pm01 * 1.0E+09_wp, pm1 * 1.0E+09_wp, pm25 * 1.0E+09_wp, pm10 * 1.0E+09_wp,      &
+                     ( pm10 - pm25 ) * 1.0E+09_wp, d_mass * 1.0E+06_wp, d_med * 1.0E+06_wp,           &
+                     pm25 / MAX( pm10, 1.0E-30_wp ), pm1 / MAX( pm25, 1.0E-30_wp )
+40  FORMAT (/'      Size-bin diagnostics at t=0 (dry mass; water listed separately):',/           &
+             '        bin   d_dry[nm]   d_wet[nm]    number[#/m3]     dry[ug/m3]   water[ug/m3]')
+41  FORMAT ( '        ', I2, 5(2X, ES12.4E3) )
+42  FORMAT (/'      PM split at t=0 (dry species only, SALSA diameter criteria):',/                 &
+             '        PM0.1 = ', ES12.4E3, '   PM1 = ', ES12.4E3, '   PM2.5 = ', ES12.4E3,          &
+             '   PM10 = ', ES12.4E3, '  ug/m3',/                                                    &
+             '        coarse (PM10-PM2.5) = ', ES12.4E3, ' ug/m3',/                                 &
+             '        mass-weighted mean dry diameter = ', ES12.4E3, ' um',/                        &
+             '        mass median dry diameter        = ', ES12.4E3, ' um',/                        &
+             '        PM2.5/PM10 = ', F6.3, '   PM1/PM2.5 = ', F6.3 )
 
  END SUBROUTINE salsa_header
 
@@ -4254,12 +4425,15 @@
           in_lad = lad_s( MAX( k-k_wall,0 ),j,i)
        ENDIF
 !
-!--    For initialization and spinup, limit the RH with the parameter rhlim
-       IF ( prunmode < 3 ) THEN
-          in_cw(k) = MIN( in_cw(k), in_cs(k) * rhlim )
-       ELSE
-          in_cw(k) = in_cw(k)
-       ENDIF
+!--    Limit the relative humidity with the parameter rhlim in ALL run modes.
+!--    NOTE: the original guard "IF ( prunmode < 3 )" made this limiter DEAD CODE,
+!--    because salsa_driver is only ever called with prunmode = 1 (initialization)
+!--    or prunmode = 3 (regular runtime) -- prunmode = 2 is not used anywhere in
+!--    PALM. With the dynamic driver the model can become supersaturated (PALM
+!--    warning PAC0201 "Mixing ratio exceeds the saturation mixing ratio"), and
+!--    SALSA would then condense water onto the aerosol without any upper bound,
+!--    making the largest size bin grow unphysically.
+       in_cw(k) = MIN( in_cw(k), in_cs(k) * rhlim )
        cw_old = in_cw(k) !* in_adn(k)
 !
 !--    Set volume concentrations:
@@ -17980,12 +18154,12 @@ CASE ( 'LDSA_tra' )
     CALL get_variable( salsa_nest_offl%id_dynamic, 'ls_forcing_top_aerosol',                       &
                        salsa_nest_offl%nconc_top,                                                  &
                        1,                                                                          &
-                       nys+1,                                                                      &
                        nxl+1,                                                                      &
+                       nys+1,                                                                      &
                        salsa_nest_offl%tind+1,                                                     &
                        nbins_aerosol,                                                              &
-                       nyn-nys+1,                                                                  &
                        nxr-nxl+1,                                                                  &
+                       nyn-nys+1,                                                                  &
                        2,                                                                          &
                        .TRUE. )
 
@@ -18091,12 +18265,12 @@ CASE ( 'LDSA_tra' )
     IF ( ibound == 5 )  THEN
        CALL get_variable( salsa_nest_offl%id_dynamic, varname_a, mf2a,                             &
                           1,                                                                       &
-                          nys+1,                                                                   \
                           nxl+1,                                                                   \
+                          nys+1,                                                                   \
                           salsa_nest_offl%tind+1,                                                  \
                           salsa_nest_offl%ncc,                                                     \
-                          nyn-nys+1,                                                               \
                           nxr-nxl+1,                                                               \
+                          nyn-nys+1,                                                               \
                           2,                                                                       \
                           .TRUE. )
 !

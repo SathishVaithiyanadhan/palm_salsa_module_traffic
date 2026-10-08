@@ -1,0 +1,486 @@
+
+!-------------------------------------------------------------------------------
+!-- INITIALIZATION PARAMETER NAMELIST
+!   https://palm.muk.uni-hannover.de/trac/wiki/doc/app/initialization_parameters
+!-------------------------------------------------------------------------------
+&initialization_parameters
+
+!-- Mode
+!-------------------------------------------------------------------------------
+    humidity                   = .T.,
+    check_realistic_q          = .T.,
+    q_surface                  = 0.001, 
+
+!-- Grid
+!-------------------------------------------------------------------------------
+    nx                         = 639,
+    ny                         = 639,
+    nz                         = 80,
+
+    dx                         = 10.0,
+    dy                         = 10.0,
+    dz                         = 10.0,
+    restart_data_format        ='fortran_binary',
+!-- Numerics
+!-------------------------------------------------------------------------------
+  !  fft_method                 = 'fftw',  
+  !  monotonic_limiter_z  = .T.,   
+   psolver   = 'multigrid',
+   masking_method = .F., 
+
+!-- Physics
+!-------------------------------------------------------------------------------
+    longitude                  = 10.89446, 
+    latitude                   = 48.36536,   
+
+!-- Boundary conditions
+!-------------------------------------------------------------------------------
+     bc_pt_b                    = 'dirichlet',
+     bc_q_b                     = 'dirichlet',
+
+    constant_flux_layer        = .T.,
+   ! roughness_length = 0.1,
+  !  z0h_factor       = 0.1,
+
+!-- Initialization
+    initializing_actions       = 'read_restart_data',
+    origin_date_time           = '2024-08-19 00:00:00 +00',
+    spinup_time                =  0.0, !86400.0,
+    spinup_pt_mean             =  291.15,
+    spinup_pt_amplitude        =   10.0,
+    data_output_during_spinup  = .F.,
+
+    pt_surface                 = 290.0,
+    pt_vertical_gradient       = 0.1, 1.0,
+    pt_vertical_gradient_level = 0.0, 500.0,
+
+   ! ug_surface                 = 1.0,
+   ! vg_surface                 = 0.0,
+    allow_roughness_limitation = .T.,
+
+!-- Topography
+!-------------------------------------------------------------------------------
+    topography                       = 'read_from_file',
+
+!-- Rayleigh damping
+!--------------------------------------
+    rayleigh_damping_factor = 0.1,  ! Rayleigh damping is applied to all prognostic variables
+    rayleigh_damping_height = 140., ! Height above which the Rayleigh damping starts (in m)
+    scalar_rayleigh_damping = .T.,   ! determines if the damping is applied also to scalars (temp, humdity/scalar) or to the horizontal vel comp only
+
+/ ! end of initialization parameter namelist
+
+!-------------------------------------------------------------------------------
+!-- RUNTIME PARAMETER NAMELIST
+!-------------------------------------------------------------------------------
+ &runtime_parameters
+
+!-- Run steering
+  !  npex = 8,
+   ! npey = 8,
+    create_disturbances        = .T.,
+    disturbance_energy_limit   = 0.015,
+    end_time                   = 3600.0,     ! 23 hrs
+  !  restart_time               = 3600.0,
+    termination_time_needed    = 1200.0,
+    restart_data_format        ='fortran_binary',
+!-- Run-control/timeseries output
+    dt_max                     = 5.0,    
+    dt_run_control             = 300.0,     ! every 5 min
+    dt_dots                    = 60.0,
+
+    dt_data_output             = 300.0,     ! every 5 min
+    dt_data_output_av          = 300.0,     ! every 5 min
+
+!-- Averaging
+    averaging_interval         = 300.0,     ! 5 min
+    dt_averaging_input         = 60.0,      ! every 1 min
+!-- Time-averaged output
+    do2d_at_begin              = .T.,
+    dt_do2d_xy                 = 300.0,
+    section_xy                 = 0,1,2,3,4,5,
+    skip_time_do2d_xy          = 0.0,
+    dt_do2d_xz                 = 300.0,
+    section_xz                 = 10, 25, 50, 75, 100, 120, 
+    skip_time_do2d_xz          = 0.0,
+    dt_do2d_yz                 = 300.0,
+    section_yz                 = 10, 25, 50, 75, 100, 120, 
+    skip_time_do2d_yz          = 0.0,
+
+!-- 3D output
+    do3d_at_begin              = .T.,
+    skip_time_do3d             = 0.0,
+
+
+    data_output = 'u', 'v', 'w', 'theta', 'ta', 'rh', 'q',
+!   --- chemistry 3D (salsa+simple, 34 species; NO suffix) ---
+                'kc_RCHO', 'kc_RH', 'kc_HO2', 'kc_RO2',
+                'kc_OH', 'kc_NO2', 'kc_O3', 'kc_NO',
+                'kc_H2SO4', 'kc_HNO3', 'kc_NH3', 'kc_OCNV', 'kc_OCSV',
+
+!   --- chemistry 3D — TRAFFIC ---
+                'kc_RCHO_tra', 'kc_RH_tra', 'kc_HO2_tra', 'kc_RO2_tra',
+                'kc_OH_tra', 'kc_NO2_tra', 'kc_O3_tra', 'kc_NO_tra',
+                'kc_H2SO4_tra', 'kc_HNO3_tra', 'kc_NH3_tra',
+                'kc_OCNV_tra', 'kc_OCSV_tra',
+
+!   --- SALSA aerosol 3D ---
+                'salsa_LDSA', 'salsa_N_UFP', 'salsa_Ntot',
+                'salsa_PM0.1', 'salsa_PM2.5', 'salsa_PM10',
+                'salsa_s_SO4', 'salsa_s_OC', 'salsa_s_BC',
+                'salsa_s_DU', 'salsa_s_SS', 'salsa_s_NO', 'salsa_s_NH',
+
+!   --- SALSA aerosol 3D — TRAFFIC ---
+                'salsa_LDSA_tra', 'salsa_N_UFP_tra', 'salsa_Ntot_tra',
+                'salsa_PM0.1_tra', 'salsa_PM2.5_tra', 'salsa_PM10_tra',
+                'salsa_s_SO4_tra', 'salsa_s_OC_tra', 'salsa_s_BC_tra',
+                'salsa_s_DU_tra', 'salsa_s_SS_tra',
+                'salsa_s_NO_tra', 'salsa_s_NH_tra',
+
+!   =============== XY slices (horizontal cross-sections) ===============
+                'w_xy', 'ta_xy', 'rh_xy', 'wspeed_xy',
+
+!   =============== XZ slices (vertical, fixed Y) — METEOROLOGY ===============
+                'u_xz', 'w_xz', 'theta_xz', 'ta_xz', 'rh_xz', 'wspeed_xz',
+
+!   =============== XZ slices — CHEMISTRY ===============
+                'kc_RCHO_xz', 'kc_RH_xz', 'kc_HO2_xz', 'kc_RO2_xz',
+                'kc_OH_xz', 'kc_NO2_xz', 'kc_O3_xz', 'kc_NO_xz',
+                'kc_H2SO4_xz', 'kc_HNO3_xz', 'kc_NH3_xz',
+                'kc_OCNV_xz', 'kc_OCSV_xz',
+
+!   =============== XZ slices — CHEMISTRY — TRAFFIC ===============
+                'kc_RCHO_tra_xz', 'kc_RH_tra_xz',
+                'kc_HO2_tra_xz', 'kc_RO2_tra_xz',
+                'kc_OH_tra_xz', 'kc_NO2_tra_xz',
+                'kc_O3_tra_xz', 'kc_NO_tra_xz',
+                'kc_H2SO4_tra_xz', 'kc_HNO3_tra_xz',
+                'kc_NH3_tra_xz',
+                'kc_OCNV_tra_xz', 'kc_OCSV_tra_xz',
+
+!   =============== XZ slices — SALSA ===============
+                'salsa_LDSA_xz', 'salsa_PM2.5_xz', 'salsa_PM10_xz',
+                'salsa_PM0.1_xz',
+                'salsa_N_UFP_xz', 'salsa_Ntot_xz',
+                'salsa_s_SO4_xz', 'salsa_s_OC_xz', 'salsa_s_BC_xz',
+                'salsa_s_NO_xz', 'salsa_s_NH_xz',
+                'salsa_s_DU_xz', 'salsa_s_SS_xz',
+
+!   =============== XZ slices — SALSA — TRAFFIC ===============
+                'salsa_LDSA_tra_xz',
+                'salsa_PM2.5_tra_xz', 'salsa_PM10_tra_xz',
+                'salsa_PM0.1_tra_xz',
+                'salsa_N_UFP_tra_xz', 'salsa_Ntot_tra_xz',
+                'salsa_s_SO4_tra_xz', 'salsa_s_OC_tra_xz',
+                'salsa_s_BC_tra_xz',
+                'salsa_s_NO_tra_xz', 'salsa_s_NH_tra_xz',
+                'salsa_s_DU_tra_xz', 'salsa_s_SS_tra_xz',
+
+!   =============== YZ slices (vertical, fixed X) — METEOROLOGY ===============
+                'u_yz', 'w_yz', 'theta_yz', 'ta_yz', 'rh_yz', 'wspeed_yz',
+
+!   =============== YZ slices — CHEMISTRY ===============
+                'kc_RCHO_yz', 'kc_RH_yz', 'kc_HO2_yz', 'kc_RO2_yz',
+                'kc_OH_yz', 'kc_NO2_yz', 'kc_O3_yz', 'kc_NO_yz',
+                'kc_H2SO4_yz', 'kc_HNO3_yz', 'kc_NH3_yz',
+                'kc_OCNV_yz', 'kc_OCSV_yz',
+
+!   =============== YZ slices — CHEMISTRY — TRAFFIC ===============
+                'kc_RCHO_tra_yz', 'kc_RH_tra_yz',
+                'kc_HO2_tra_yz', 'kc_RO2_tra_yz',
+                'kc_OH_tra_yz', 'kc_NO2_tra_yz',
+                'kc_O3_tra_yz', 'kc_NO_tra_yz',
+                'kc_H2SO4_tra_yz', 'kc_HNO3_tra_yz',
+                'kc_NH3_tra_yz',
+                'kc_OCNV_tra_yz', 'kc_OCSV_tra_yz',
+
+!   =============== YZ slices — SALSA ===============
+                'salsa_LDSA_yz', 'salsa_PM2.5_yz', 'salsa_PM10_yz',
+                'salsa_PM0.1_yz',
+                'salsa_N_UFP_yz', 'salsa_Ntot_yz',
+                'salsa_s_SO4_yz', 'salsa_s_OC_yz', 'salsa_s_BC_yz',
+                'salsa_s_NO_yz', 'salsa_s_NH_yz',
+                'salsa_s_DU_yz', 'salsa_s_SS_yz',
+
+!   =============== YZ slices — SALSA — TRAFFIC ===============
+                'salsa_LDSA_tra_yz',
+                'salsa_PM2.5_tra_yz', 'salsa_PM10_tra_yz',
+                'salsa_PM0.1_tra_yz',
+                'salsa_N_UFP_tra_yz', 'salsa_Ntot_tra_yz',
+                'salsa_s_SO4_tra_yz', 'salsa_s_OC_tra_yz',
+                'salsa_s_BC_tra_yz',
+                'salsa_s_NO_tra_yz', 'salsa_s_NH_tra_yz',
+                'salsa_s_DU_tra_yz', 'salsa_s_SS_tra_yz',
+
+
+!  ============================================================================
+!  1D PROFILES   (NO suffix!  'ta', 'wdir' and 'wspeed' are NOT valid here)
+!  ============================================================================
+    data_output_pr  =
+
+!   --- meteorology ---
+                      'u', 'v', 'w', 'theta', 'q',
+
+!   --- chemistry ---
+                      'kc_RCHO', 'kc_RH', 'kc_HO2', 'kc_RO2',
+                      'kc_OH', 'kc_NO2', 'kc_O3', 'kc_NO',
+                      'kc_H2SO4', 'kc_HNO3', 'kc_NH3',
+                      'kc_OCNV', 'kc_OCSV',
+
+!   --- chemistry — TRAFFIC ---
+                      'kc_RCHO_tra', 'kc_RH_tra',
+                      'kc_HO2_tra', 'kc_RO2_tra',
+                      'kc_OH_tra', 'kc_NO2_tra',
+                      'kc_O3_tra', 'kc_NO_tra',
+                      'kc_H2SO4_tra', 'kc_HNO3_tra',
+                      'kc_NH3_tra',
+                      'kc_OCNV_tra', 'kc_OCSV_tra',
+
+!   --- SALSA ---
+                      'salsa_LDSA', 'salsa_N_UFP', 'salsa_Ntot',
+                      'salsa_PM0.1', 'salsa_PM2.5', 'salsa_PM10',
+                      'salsa_s_SO4', 'salsa_s_OC', 'salsa_s_BC',
+                      'salsa_s_DU', 'salsa_s_SS',
+                      'salsa_s_NO', 'salsa_s_NH',
+
+!   --- SALSA — TRAFFIC ---
+                      'salsa_LDSA_tra', 'salsa_N_UFP_tra',
+                      'salsa_Ntot_tra',
+                      'salsa_PM0.1_tra', 'salsa_PM2.5_tra',
+                      'salsa_PM10_tra',
+                      'salsa_s_SO4_tra', 'salsa_s_OC_tra',
+                      'salsa_s_BC_tra', 'salsa_s_DU_tra',
+                      'salsa_s_SS_tra', 'salsa_s_NO_tra',
+                      'salsa_s_NH_tra',
+
+
+!  ============================================================================
+!  MASKED OUTPUT   (NO suffix)
+!  ============================================================================
+    mask_k_over_surface(1,:) = 1, 2, 3,
+
+    dt_domask = 300.0,                         ! 300 s = 5 min
+    skip_time_domask = 0.0,
+
+    data_output_masks(1,:) =
+
+!   --- meteorology ---
+                                 'u', 'v', 'w', 'wdir',
+                                 'wspeed', 'ta', 'theta', 'rh',
+
+!   --- chemistry ---
+                                 'kc_RCHO', 'kc_RH', 'kc_HO2', 'kc_RO2',
+                                 'kc_OH', 'kc_NO2', 'kc_O3', 'kc_NO',
+                                 'kc_H2SO4', 'kc_HNO3', 'kc_NH3',
+                                 'kc_OCNV', 'kc_OCSV',
+
+!   --- chemistry — TRAFFIC ---
+                                 'kc_RCHO_tra', 'kc_RH_tra',
+                                 'kc_HO2_tra', 'kc_RO2_tra',
+                                 'kc_OH_tra', 'kc_NO2_tra',
+                                 'kc_O3_tra', 'kc_NO_tra',
+                                 'kc_H2SO4_tra', 'kc_HNO3_tra',
+                                 'kc_NH3_tra',
+                                 'kc_OCNV_tra', 'kc_OCSV_tra',
+
+!   --- SALSA bins (1..10 for your default nbin = 3 + 7) ---
+                                 'salsa_N_bin1',  'salsa_N_bin2',
+                                 'salsa_N_bin3',  'salsa_N_bin4',
+                                 'salsa_N_bin5',  'salsa_N_bin6',
+                                 'salsa_N_bin7',  'salsa_N_bin8',
+                                 'salsa_N_bin9',  'salsa_N_bin10',
+
+                                 'salsa_m_bin1',  'salsa_m_bin2',
+                                 'salsa_m_bin3',  'salsa_m_bin4',
+                                 'salsa_m_bin5',  'salsa_m_bin6',
+                                 'salsa_m_bin7',  'salsa_m_bin8',
+                                 'salsa_m_bin9',  'salsa_m_bin10',
+
+!   --- SALSA bins — TRAFFIC ---
+                                 'salsa_N_bin1_tra',  'salsa_N_bin2_tra',
+                                 'salsa_N_bin3_tra',  'salsa_N_bin4_tra',
+                                 'salsa_N_bin5_tra',  'salsa_N_bin6_tra',
+                                 'salsa_N_bin7_tra',  'salsa_N_bin8_tra',
+                                 'salsa_N_bin9_tra',  'salsa_N_bin10_tra',
+
+                                 'salsa_m_bin1_tra',  'salsa_m_bin2_tra',
+                                 'salsa_m_bin3_tra',  'salsa_m_bin4_tra',
+                                 'salsa_m_bin5_tra',  'salsa_m_bin6_tra',
+                                 'salsa_m_bin7_tra',  'salsa_m_bin8_tra',
+                                 'salsa_m_bin9_tra',  'salsa_m_bin10_tra',
+
+!   --- SALSA integrated ---
+                                 'salsa_LDSA', 'salsa_N_UFP',
+                                 'salsa_Ntot',
+                                 'salsa_PM0.1', 'salsa_PM2.5',
+                                 'salsa_PM10',
+                                 'salsa_s_SO4', 'salsa_s_OC',
+                                 'salsa_s_BC',
+                                 'salsa_s_DU', 'salsa_s_SS',
+                                 'salsa_s_NO', 'salsa_s_NH',
+
+!   --- SALSA integrated — TRAFFIC ---
+                                 'salsa_LDSA_tra',
+                                 'salsa_N_UFP_tra',
+                                 'salsa_Ntot_tra',
+                                 'salsa_PM0.1_tra',
+                                 'salsa_PM2.5_tra',
+                                 'salsa_PM10_tra',
+                                 'salsa_s_SO4_tra',
+                                 'salsa_s_OC_tra',
+                                 'salsa_s_BC_tra',
+                                 'salsa_s_DU_tra',
+                                 'salsa_s_SS_tra',
+                                 'salsa_s_NO_tra',
+                                 'salsa_s_NH_tra',
+
+ / ! end of d3par namelist
+!-------------------------------------------------------------------------------
+!-- RADIATION PARAMETER NAMELIST
+!-------------------------------------------------------------------------------
+&radiation_parameters
+    radiation_scheme           = 'external',
+    dt_radiation               = 60.0,
+    albedo_type                = 5,
+    nrefsteps                  = 5,
+    radiation_volumetric_flux  = .T.,
+    unscheduled_radiation_calls= .T.,
+    localized_raytracing = .T.,
+ / ! end of radiation_parameters namelist
+
+!-------------------------------------------------------------------------------
+!-- LAND SURFACE MODEL PARAMETER NAMELIST
+!-------------------------------------------------------------------------------
+ &land_surface_parameters
+    surface_type               = 'read_from_file'
+    root_fraction              = 0.49, 0.26, 0.25, 0.0, 0.0, 0.0, 0.0, 0.0,
+    soil_moisture              = 0.26607378573976814, 0.26607378573976814,
+                                 0.26607378573976814, 0.26607378573976814,
+                                 0.2669791093685835, 0.2688128311979959,
+                                 0.271631897905247, 0.27178851284678274,
+    soil_temperature           = 291.23782681456476, 291.23782681456476,
+                                 291.23782681456476, 291.23782681456476,
+                                 290.14639721777183, 288.14493512038894,
+                                 286.80046976599454, 286.72577718694566,
+    deep_soil_temperature      = 281.09222,
+    aero_resist_kray           = .T.,
+    constant_roughness         = .T.,
+    conserve_water_content     = .F.,
+ / ! end of land_surface_parameters namelist
+
+!-------------------------------------------------------------------------------
+!-- URBAN SURFACE MODEL PARAMETER NAMELIST
+!-------------------------------------------------------------------------------
+ &urban_surface_parameters
+  !  building_type              = 0,
+  !  roughness_concrete         = 0.001,
+  !  roof_inner_temperature     = 295.0,
+  !  wall_inner_temperature     = 295.0,
+  !  window_inner_temperature   = 295.0,
+ / ! end of urban_surface_parameters namelist
+
+!-------------------------------------------------------------------------------
+!-- PLANT CANOPY MODEL PARAMETER NAMELIST
+!-------------------------------------------------------------------------------
+ &plant_canopy_parameters
+    canopy_mode                = 'read_from_file',
+    canopy_drag_coeff          = 0.15,
+    plant_canopy_transpiration = .T.,
+ / ! end of canopy_par namelist
+
+!-------------------------------------------------------------------------------
+!-- CHEMISTRY MODEL PARAMETER NAMELIST
+!-------------------------------------------------------------------------------
+&chemistry_parameters
+    chem_gasphase_on           = .T.,
+    emissions_anthropogenic    = .TRUE.,
+    emiss_lod                  = 2,
+    chem_mechanism             = 'salsa+simple_tra',
+    deposition_dry             = .TRUE.,
+    photolysis_scheme          = 'simple',
+    photolysis_shading         = .T.,
+    bc_cs_b                    = 'neumann',
+    bc_cs_t                    = 'dirichlet',
+    bc_cs_l                    = 'dirichlet',
+    bc_cs_r                    = 'dirichlet',
+    bc_cs_n                    = 'dirichlet',
+    bc_cs_s                    = 'dirichlet',
+    icntrl(3)                  = 1,
+    icntrl(4)                  = 500,
+    rcntrl(3)                  = 0.1,
+/ ! end of chemistry_parameters namelist
+
+!-------------------------------------------------------------------------------
+!-- SALSA PARAMETER NAMELIST
+!-------------------------------------------------------------------------------
+ &salsa_parameters
+    dt_salsa                   = 1.0,
+    dpg                        = 13.5E-9, 54.0E-9, 864.1E-9,
+    sigmag                     = 1.8, 2.16, 2.21,
+    n_lognorm                  = 1.43E9, 4.45E8, 7.0E4,
+
+    H2SO4_init                 = 5.0E6,
+    HNO3_init                  = 1.0E10,
+    NH3_init                   = 1.0E11,
+    OCNV_init                  = 5.0E10,
+    OCSV_init                  = 5.0E10,
+
+    H2SO4_tra_init             = 5.0E5,
+    HNO3_tra_init              = 1.0E9,
+    NH3_tra_init               = 1.0E10,
+    OCNV_tra_init              = 5.0E9,
+    OCSV_tra_init              = 5.0E9,
+
+    listspec                   = 'SO4','OC','BC','DU','SS','NO','NH','PB','HG','NI','CD','AS',
+
+    reglim                     = 3.9e-8, 1.56e-7, 1.0e-5,
+    nbin                       = 3,7,
+    nf2a                       = 1.0,
+
+    salsa_emission_mode        = 'read_from_file'
+    is_traffic                 = .TRUE.,
+    rhlim                      = 0.97,
+
+  !  mass_fracs_a               = 0.35, 0.28, 0.03, 0.05, 0.02, 0.10, 0.15, 0.01, 0.003, 0.002, 0.001, 0.004,
+  !  mass_fracs_b               = 0.10, 0.05, 0.00, 0.55, 0.28, 0.00, 0.00, 0.01, 0.001, 0.001, 0.001, 0.007,
+  !  mass_fracs_a_tra           = 0.06, 0.29, 0.40, 0.02, 0.00, 0.08, 0.12, 0.015, 0.003, 0.005, 0.002, 0.005,
+  !  mass_fracs_b_tra           = 0.10, 0.05, 0.00, 0.55, 0.28, 0.00, 0.00, 0.01, 0.001, 0.001, 0.001, 0.007,
+
+  !  mass_fracs_a               = 0.3200, 0.2600, 0.0300, 0.0800, 0.1000, 0.1100, 0.0900, 0.0020, 0.0003, 0.0008, 0.0002, 0.0067,
+  !  mass_fracs_b               = 0.0200, 0.0800, 0.0700, 0.6200, 0.1800, 0.0000, 0.0000, 0.0100, 0.0010, 0.0030, 0.0010, 0.0150,
+    mass_fracs_a_tra           = 0.0300, 0.3600, 0.2200, 0.0400, 0.0000, 0.1700, 0.1500, 0.0100, 0.0010, 0.0080, 0.0030, 0.0080,
+    mass_fracs_b_tra           = 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000,
+
+    bc_aer_l = 'dirichlet',
+    bc_aer_r = 'dirichlet',
+    bc_aer_s = 'dirichlet',
+    bc_aer_n = 'dirichlet',
+    bc_aer_b = 'neumann',
+    bc_aer_t = 'dirichlet',
+
+    nldistupdate               = .T.,
+    nldepo                     = .T.,
+    nldepo_pcm                 = .T.,
+    nldepo_surf                = .T.,
+    nlcnd                      = .T.,
+    nlcndgas                   = .T.,
+    nlcndh2oae                 = .T.,
+    nlcoag                     = .T.,
+    van_der_waals_coagc        = .T.,
+    nsnucl                     = 5,
+    nj3                        = 1,
+!-- Deposition parametrisations:
+    depo_pcm_par         = 'zhang2001',  ! plant canopy
+    depo_surf_par        = 'zhang2001',  ! ground, roofs and walls
+    season_z01           = 1,             ! Season for zhang2001,
+                                         ! 1 = summer, 2 = autumn, 3 = late autumn
+                                         ! 4 = winter, 5 = transitional spring
+
+
+    advect_particle_water      = .T.,
+    feedback_to_palm           = .F.,
+    nesting_salsa              = .T.,
+    nesting_offline_salsa      = .F.,
+
+ / ! end of salsa_parameters
+!-------------------------------------------------------------------------------

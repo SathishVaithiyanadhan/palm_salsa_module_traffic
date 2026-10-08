@@ -36,17 +36,63 @@
 %compiler_name           /hpc/gpfs2/sw/intel/oa/2024.2.1/mpi/2021.13/bin/mpiifx
 %compiler_name_ser       /hpc/gpfs2/sw/intel/oa/2024.2.1/mpi/2021.13/bin/mpiifx
 %cpp_options             -fpp -D__intel_compiler -D__parallel -DMPI_REAL=MPI_DOUBLE_PRECISION -DMPI_2REAL=MPI_2DOUBLE_PRECISION -D__netcdf -D__fftw -D__rrtmg
-%make_options            -j 128
+# BUILD-TIME ONLY -- this is the -j option of make during palmbuild, i.e. how
+# many source files are compiled in parallel. It has ZERO influence on how fast
+# the model runs. Raise it to shorten rebuilds, or lower it if the shared login
+# node complains.
+# IMPORTANT: never use backticks, dollar-parens or double quotes anywhere in
+# this file. palmbuild and palmrun EVAL every line, comments included, so such
+# text is executed as a command.
+%make_options            -j 32
 %c_compiler_options      
-%compiler_options_rrtmg  -O3 -fp-model source -fno-alias -fpe0 -ftz -no-prec-div -nbs -diag-disable 8290,8291 -I /hpc/gpfs2/home/g/mmbees/spack/v1.0.2/opt/spack/linux-zen3/netcdf-fortran-4.6.1-5ozgrbulunqpufxxcai3ptva4b7jmi4b/include
-%compiler_options        -O3 -g -traceback -fp-model source -fno-alias -fpe0 -ftz -no-prec-div -nbs -diag-disable 8290,8291 -I /hpc/gpfs2/home/g/mmbees/spack/v1.0.2/opt/spack/linux-zen3/netcdf-fortran-4.6.1-5ozgrbulunqpufxxcai3ptva4b7jmi4b/include -I /hpc/gpfs2/home/g/mmbees/spack/v1.0.2/opt/spack/linux-zen3/fftw-3.3.10-xz2w6lplr2nkznqeixoukmvoe6zmyjs2/include
+# -xHost: required, without it ifx targets SSE2 only (no AVX2/FMA) on this Zen3 node.
+%compiler_options_rrtmg  -O3 -xHost -fp-model source -fno-alias -fpe0 -ftz -no-prec-div -nbs -diag-disable 8290,8291 -I /hpc/gpfs2/home/g/mmbees/spack/v1.0.2/opt/spack/linux-zen3/netcdf-fortran-4.6.1-5ozgrbulunqpufxxcai3ptva4b7jmi4b/include
+# -xHost: required, without it ifx targets SSE2 only (no AVX2/FMA) on this Zen3 node.
+# -g -traceback -fpe0 are debugging flags: they cost performance and -fpe0 aborts
+# on the first floating-point exception. For production builds drop them.
+%compiler_options        -O3 -xHost -g -traceback -fp-model source -fno-alias -fpe0 -ftz -no-prec-div -nbs -diag-disable 8290,8291 -I /hpc/gpfs2/home/g/mmbees/spack/v1.0.2/opt/spack/linux-zen3/netcdf-fortran-4.6.1-5ozgrbulunqpufxxcai3ptva4b7jmi4b/include -I /hpc/gpfs2/home/g/mmbees/spack/v1.0.2/opt/spack/linux-zen3/fftw-3.3.10-xz2w6lplr2nkznqeixoukmvoe6zmyjs2/include
 %linker_options_rrtmg    -O3 -fp-model source -fno-alias -fpe0 -ftz -no-prec-div -nbs -diag-disable 8290,8291 /hpc/gpfs2/home/g/mmbees/spack/v1.0.2/opt/spack/linux-zen3/netcdf-fortran-4.6.1-5ozgrbulunqpufxxcai3ptva4b7jmi4b/lib/libnetcdff.so
 %linker_options          -O3 -g -traceback -fp-model source -fno-alias -fpe0 -ftz -no-prec-div -nbs -diag-disable 8290,8291 /hpc/gpfs2/home/g/mmbees/spack/v1.0.2/opt/spack/linux-zen3/netcdf-fortran-4.6.1-5ozgrbulunqpufxxcai3ptva4b7jmi4b/lib/libnetcdff.so /hpc/gpfs2/home/g/mmbees/spack/v1.0.2/opt/spack/linux-zen3/fftw-3.3.10-xz2w6lplr2nkznqeixoukmvoe6zmyjs2/lib/libfftw3.so
 #%execute_command         srun --mpi=pmi2 --distribution=arbitrary --cpu-bind=cores --kill-on-bad-exit ./palm
-%execute_command         srun --mpi=pmi2 --distribution=block:block --cpu-bind=cores --kill-on-bad-exit ./palm
-%memory                  7500
-%module_commands         module load intel/2024.2.1 impi fftw flex netcdf-c netcdf-fortran python-mbees bison cmake hdf5 openssl
+%execute_command         srun --mpi=pmix --distribution=block:block --cpu-bind=cores --kill-on-bad-exit ./palm
+%memory                  3500
+%module_commands         module load intel/2024.2.1 impi pmix fftw flex netcdf-c netcdf-fortran python-mbees bison cmake hdf5 openssl
 #%login_init_cmd          .execute_special_profile
+#
+#-------------------------------------------------------------------------------
+# ALTERNATIVE TOOLCHAINS (each one needs a fresh palmbuild run + run directory).
+# When switching, change ALL of these together, in BOTH files:
+#   %c_compiler_name  %compiler_name  %compiler_name_ser  %cpp_options
+#   %compiler_options[_rrtmg]  %linker_options[_rrtmg]  %module_commands
+#   %execute_command  and  the IC:module load line further down.
+#
+# ---- B. Intel 2023.2.1  (the version the HPC team calls reliable) ------------
+# impi IS available for it (impi/2021.10.0). Verify first in a shell:
+#    module load intel/2023.2.1 impi ; which mpiifx
+# and fix the 2021.10.0 in the three paths below if the version differs.
+#   Intel-specific flags (-xHost -fp-model -nbs -diag-disable) stay as they are.
+#%c_compiler_name         /hpc/gpfs2/sw/intel/oa/2023.2.1/mpi/2021.10.0/bin/mpiicx
+#%compiler_name           /hpc/gpfs2/sw/intel/oa/2023.2.1/mpi/2021.10.0/bin/mpiifx
+#%compiler_name_ser       /hpc/gpfs2/sw/intel/oa/2023.2.1/mpi/2021.10.0/bin/mpiifx
+#%module_commands         module load intel/2023.2.1 impi pmix fftw flex netcdf-c netcdf-fortran python-mbees bison cmake hdf5 openssl
+#
+# ---- C. GNU: gcc/13.2.0 + openmpi/4.1.8  (no Intel runtime at all) ----------
+# UNVERIFIED for PALM 25.10 + SALSA: treat as a starting point, expect iteration.
+# - -D__intel_compiler MUST be removed, and gfortran needs its own flag set.
+# - %execute_command must become:  mpirun --bind-to core -np {{mpi_tasks}} ./palm
+#   (srun --mpi=... does not work with OpenMPI; use  srun --mpi=pmix_v3  only
+#    with Intel MPI).
+# - keep the same two spack include/lib paths for netcdf/fftw if they were built
+#   with gcc; otherwise switch to the  module  versions of fftw / netcdf-fortran.
+#%c_compiler_name         mpicc
+#%compiler_name           mpif90
+#%compiler_name_ser       mpif90
+#%cpp_options             -cpp -D__parallel -DMPI_REAL=MPI_DOUBLE_PRECISION -DMPI_2REAL=MPI_2DOUBLE_PRECISION -D__netcdf -D__fftw -D__rrtmg
+#%compiler_options_rrtmg  -O3 -march=znver3 -ffree-line-length-none -fno-unsafe-math-optimizations -I /hpc/gpfs2/home/g/mmbees/spack/v1.0.2/opt/spack/linux-zen3/netcdf-fortran-4.6.1-5ozgrbulunqpufxxcai3ptva4b7jmi4b/include
+#%compiler_options        -O3 -march=znver3 -ffree-line-length-none -fno-unsafe-math-optimizations -I /hpc/gpfs2/home/g/mmbees/spack/v1.0.2/opt/spack/linux-zen3/netcdf-fortran-4.6.1-5ozgrbulunqpufxxcai3ptva4b7jmi4b/include -I /hpc/gpfs2/home/g/mmbees/spack/v1.0.2/opt/spack/linux-zen3/fftw-3.3.10-xz2w6lplr2nkznqeixoukmvoe6zmyjs2/include
+#%linker_options_rrtmg    -O3 /hpc/gpfs2/home/g/mmbees/spack/v1.0.2/opt/spack/linux-zen3/netcdf-fortran-4.6.1-5ozgrbulunqpufxxcai3ptva4b7jmi4b/lib/libnetcdff.so
+#%linker_options          -O3 /hpc/gpfs2/home/g/mmbees/spack/v1.0.2/opt/spack/linux-zen3/netcdf-fortran-4.6.1-5ozgrbulunqpufxxcai3ptva4b7jmi4b/lib/libnetcdff.so /hpc/gpfs2/home/g/mmbees/spack/v1.0.2/opt/spack/linux-zen3/fftw-3.3.10-xz2w6lplr2nkznqeixoukmvoe6zmyjs2/lib/libfftw3.so
+#%module_commands         module load gcc/13.2.0 openmpi/4.1.8 fftw flex netcdf-c netcdf-fortran python-mbees bison cmake hdf5 openssl
 #
 #-------------------------------------------------------------------------------
 # Directives to be used for batch jobs
@@ -55,14 +101,18 @@
 #-------------------------------------------------------------------------------
 BD:#!/bin/bash -l
 BD:#SBATCH --partition=epyc
+# --exclusive: the epyc partition is shared (nodes routinely run at 120+/128 cpus,
+# 900+/1000 GB). Only correct when you fill the node (128 tasks per node);
+# with fewer tasks per node it just blocks other users -> comment it out again.
 #BD:#SBATCH --exclusive
+BD:#SBATCH --hint=nomultithread
 BD:#SBATCH --output={{job_protocol_file}}
 BD:#SBATCH --error={{job_protocol_file}}
 BD:#SBATCH --job-name={{run_id}}
 BD:#SBATCH --ntasks={{mpi_tasks}}
 BD:#SBATCH --nodes={{nodes}}
 BD:#SBATCH --ntasks-per-node={{tasks_per_node}}
-BD:#SBATCH --mem-per-cpu=7500
+BD:#SBATCH --mem-per-cpu=3500
 BD:#SBATCH --mail-type=FAIL
 BD:#SBATCH --mail-user=sathish.vaithiyanadhan@uni-a.de
 BD:#SBATCH --time={{cpu_hours}}:{{cpu_minutes}}:{{cpu_seconds}}
@@ -84,13 +134,37 @@ BDT:#PBS -q dataq
 # INPUT-commands. These commands are executed before running PALM
 # Lines must start with "IC:"
 #-------------------------------------------------------------------------------
-IC:module load intel/2024.2.1 impi fftw flex netcdf-c netcdf-fortran python-mbees bison cmake hdf5 openssl
+IC:module load intel/2024.2.1 impi pmix fftw flex netcdf-c netcdf-fortran python-mbees bison cmake hdf5 openssl
 IC:export LD_LIBRARY_PATH=$(pkg-config netcdf-fortran --variable=libdir):$LD_LIBRARY_PATH
-#IC:export I_MPI_SHM_OPT=shm
-#IC:export FI_PROVIDER=mlx
-#IC:export FI_TCP_IFACE=eth5
+#
+# --- PMI ---------------------------------------------------------------------
+# The impi module always reports that it is omitting to set I_MPI_PMI_LIBRARY,
+# so the PMI library has to be set explicitly here. It MUST match the mode
+# given to srun. Mixing them aborts MPI_Init with PMI2_Job_GetId returned 14.
+#   %execute_command = srun --mpi=pmix  <-> libpmix.so   (used here)
+#   %execute_command = srun --mpi=pmi2  <-> libpmi2.so   (site default; the impi
+#       module sets SLURM_MPI_TYPE=pmi2, and the pmi2 module sets PMI2_HOME)
+IC:export I_MPI_PMI_LIBRARY=/hpc/gpfs2/sw/pmix/5.0.7-gcc13-u24.04/lib/libpmix.so
+#IC:export I_MPI_PMI_LIBRARY=$PMI2_HOME/lib/libpmi2.so
+#
+# --- inter-node fabric (Mellanox ConnectX-5, RoCE 100G) ----------------------
+# The impi module silently sets I_MPI_FABRICS=shm:ofi AND FI_PROVIDER=mlx, even
+# though mlx is commented out below. mlx is the DEPRECATED libfabric provider,
+# while verbs is the supported RoCE provider. These two lines override it and
+# are the first thing to test for the multi-node hang. REVERT = comment them
+# out, and you fall back to whatever the impi module set.
+IC:export FI_PROVIDER=verbs
+IC:export I_MPI_OFI_PROVIDER=verbs
+# Only needed if MPI picks the wrong RoCE port (eth5 = mlx5_0, eth4 = mlx5_1):
+#IC:export FI_VERBS_IFACE=eth5
 IC:export I_MPI_FABRICS=shm:ofi
-IC:export I_MPI_PMI_LIBRARY=/hpc/gpfs2/sw/pmi2/current/lib/libpmi2.so
+# Last-resort test if verbs does not help: bypass libfabric completely.
+#IC:export I_MPI_FABRICS=shm:tcp
+#IC:export FI_TCP_IFACE=eth5
+# I_MPI_DEBUG=5 is verbose (per-rank startup dump) - fine for debugging, set it
+# to 0 for production runs. Add I_MPI_DEBUG_OUTPUT=mpi_dbg to write it to files
+# instead of stdout (survives a killed job).
+IC:export I_MPI_DEBUG=5
 IC:ulimit  -s unlimited
 IC:srun hostname -s | sort -n > slurm.hosts
 #
